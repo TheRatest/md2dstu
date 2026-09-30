@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# md2dstu generated artifacts
+.~lock.*
+examples/*.docx
+examples/*.docx.validation.txt
