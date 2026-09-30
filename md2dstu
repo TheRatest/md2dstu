@@ -1,0 +1,1040 @@
+#!/usr/bin/env python3
+"""Convert Markdown or Org reports to a DSTU-oriented editable document."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+from typing import Any
+from xml.etree import ElementTree as ET
+
+
+ROOT = Path(__file__).resolve().parent
+FILTER = ROOT / "filters" / "dstu.lua"
+CSL = ROOT / "resources" / "dstu-numeric.csl"
+DEFAULT_REFERENCE = ROOT / "templates" / "dstu-reference.docx"
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ET.register_namespace("w", W_NS)
+
+
+class ConversionError(RuntimeError):
+    pass
+
+
+def qn(name: str) -> str:
+    return f"{{{W_NS}}}{name}"
+
+
+def command(args: list[str], *, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            args,
+            cwd=cwd,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except FileNotFoundError as exc:
+        raise ConversionError(f"Required program not found: {args[0]}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "unknown error").strip()
+        raise ConversionError(f"Command failed ({args[0]}):\n{detail}") from exc
+
+
+def publish_file(source: Path, destination: Path) -> None:
+    """Publish a completed file atomically, including across filesystems."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=destination.parent,
+    )
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        shutil.copy2(source, temporary)
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        # The temporary file and destination are in the same directory, so
+        # this final atomic rename works even when source lives on /tmp.
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def meta_plain(value: Any) -> Any:
+    if not isinstance(value, dict) or "t" not in value:
+        return value
+    kind, content = value["t"], value.get("c")
+    if kind == "MetaMap":
+        return {key: meta_plain(item) for key, item in content.items()}
+    if kind == "MetaList":
+        return [meta_plain(item) for item in content]
+    if kind == "MetaBool":
+        return bool(content)
+    if kind in {"MetaString", "MetaInlines", "MetaBlocks"}:
+        return stringify(content)
+    return stringify(content)
+
+
+def stringify(node: Any) -> str:
+    parts: list[str] = []
+
+    def visit(item: Any) -> None:
+        if isinstance(item, list):
+            for child in item:
+                visit(child)
+        elif isinstance(item, dict):
+            kind = item.get("t")
+            content = item.get("c")
+            if kind in {"Str", "Code", "Math"}:
+                text = content if isinstance(content, str) else content[-1]
+                parts.append(str(text))
+            elif kind in {"Space", "SoftBreak", "LineBreak"}:
+                parts.append(" ")
+            else:
+                visit(content)
+
+    visit(node)
+    return re.sub(r"\s+", " ", "".join(parts)).strip()
+
+
+def walk(node: Any):
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from walk(value)
+
+
+def source_format(path: Path) -> str:
+    if path.suffix.lower() in {".md", ".markdown", ".mdown", ".mkd"}:
+        return "markdown+yaml_metadata_block+fenced_divs+implicit_figures+table_captions+tex_math_dollars+citations+footnotes"
+    if path.suffix.lower() == ".org":
+        return "org"
+    raise ConversionError("Input must be a Markdown (.md) or Org (.org) file")
+
+
+def ast_for(source: Path, fmt: str, metadata_files: list[Path]) -> tuple[dict[str, Any], str]:
+    args = ["pandoc", str(source), "--from", fmt, "--to", "json"]
+    for metadata in metadata_files:
+        args.extend(["--metadata-file", str(metadata)])
+    result = command(args, cwd=source.parent)
+    return json.loads(result.stdout), result.stderr
+
+
+def normalize_heading(text: str) -> str:
+    text = re.sub(r"^\d+(?:\.\d+)*\s+", "", text.strip())
+    return re.sub(r"[.:;!?]+$", "", text).strip().casefold()
+
+
+STRUCTURAL = {
+    "реферат",
+    "abstract",
+    "зміст",
+    "contents",
+    "вступ",
+    "introduction",
+    "висновки",
+    "conclusions",
+    "рекомендації",
+    "recommendations",
+    "перелік джерел посилання",
+    "список використаних джерел",
+    "references",
+}
+
+
+def validate(ast: dict[str, Any], source: Path, output: Path, settings: dict[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    unverified = [
+        "Correctness and completeness of bibliographic descriptions",
+        "Whether every formula, figure, table, and appendix is cited at the proper point in the prose",
+        "Visual pagination (widows/orphans, overflow, image legibility, and exact TOC page numbers)",
+        "Institution-specific approval blocks and signatures",
+    ]
+    meta = {key: meta_plain(value) for key, value in ast.get("meta", {}).items()}
+    nodes = list(walk(ast.get("blocks", [])))
+    headings: list[tuple[int, str, list[str]]] = []
+    for node in nodes:
+        if node.get("t") == "Header":
+            level, attr, inlines = node["c"]
+            headings.append((level, stringify(inlines), attr[1]))
+
+    first_block = ast.get("blocks", [{}])[0] if ast.get("blocks") else {}
+    manual_title = (
+        first_block.get("t") == "Div"
+        and "title-page" in first_block.get("c", [["", [], []]])[0][1]
+    )
+    if not manual_title and not meta.get("title"):
+        errors.append("No title page can be generated: metadata field 'title' is missing")
+    for field in ("institution", "city", "year"):
+        if not manual_title and not meta.get(field):
+            warnings.append(f"Title-page metadata is missing: {field}")
+    if not manual_title:
+        student = meta.get("student") if isinstance(meta.get("student"), dict) else {}
+        teacher = meta.get("teacher") if isinstance(meta.get("teacher"), dict) else {}
+        if not student.get("name") and not meta.get("author"):
+            warnings.append("Title-page metadata is missing: student.name (or legacy author)")
+        if not teacher.get("name") and not meta.get("supervisor"):
+            warnings.append("Title-page metadata is missing: teacher.name (or legacy supervisor)")
+
+    normalized = [normalize_heading(text) for _, text, _ in headings]
+
+    def position(names: set[str]) -> int | None:
+        return next((i for i, value in enumerate(normalized) if value in names), None)
+
+    # РЕФЕРАТ and ВСТУП are part of a complete DSTU report, but the converter
+    # also supports shorter document types where either heading is absent.
+    # Report the omission without making --check reject an otherwise valid
+    # conversion. Conclusions remain required by the default report profile.
+    required = [
+        ("conclusions/ВИСНОВКИ", {"висновки", "conclusions"}),
+    ]
+    optional_structural = [
+        ("abstract/РЕФЕРАТ", {"реферат", "abstract"}),
+        ("introduction/ВСТУП", {"вступ", "introduction"}),
+    ]
+    for label, aliases in optional_structural:
+        if position(aliases) is None:
+            warnings.append(f"Structural heading is absent (supported): {label}")
+    positions: list[int] = []
+    for label, aliases in required:
+        found = position(aliases)
+        if found is None:
+            errors.append(f"Required structural heading is missing: {label}")
+        else:
+            positions.append(found)
+    abstract_at = position({"реферат", "abstract"})
+    introduction_at = position({"вступ", "introduction"})
+    conclusion_at = position({"висновки", "conclusions"})
+    present_order = [item for item in (abstract_at, introduction_at, conclusion_at) if item is not None]
+    if present_order != sorted(present_order):
+        errors.append("Present structural sections are not in abstract → introduction → conclusions order")
+
+    intro_at = introduction_at
+    if intro_at is not None and conclusion_at is not None:
+        main = [
+            text
+            for i, (level, text, _) in enumerate(headings)
+            if intro_at < i < conclusion_at
+            and level == 1
+            and normalize_heading(text) not in STRUCTURAL
+            and not normalize_heading(text).startswith(("додаток", "appendix"))
+        ]
+        if not main:
+            errors.append("No level-1 main-body section was found between introduction and conclusions")
+
+    for level, text, _ in headings:
+        if text.rstrip().endswith("."):
+            warnings.append(f"Heading ends with a period (level {level}): {text}")
+
+    resource_dirs = [source.parent, *settings["resource_dirs"]]
+    images = [node["c"][2][0] for node in nodes if node.get("t") == "Image"]
+    for target in images:
+        if re.match(r"^(?:https?|data):", target):
+            if target.startswith("http"):
+                warnings.append(f"Remote image reduces offline reproducibility: {target}")
+            continue
+        if not Path(target).is_absolute() and not any((directory / target).exists() for directory in resource_dirs):
+            errors.append(f"Local image was not found: {target}")
+
+    tables = [node for node in nodes if node.get("t") == "Table"]
+    for index, table in enumerate(tables, 1):
+        caption = table["c"][1]
+        if not stringify(caption):
+            warnings.append(f"Table {index} has no caption")
+
+    display_math = [
+        node for node in nodes if node.get("t") == "Math" and node.get("c", [""])[0].get("t") == "DisplayMath"
+    ]
+    numbered_formulae = [
+        node
+        for node in nodes
+        if node.get("t") == "Div"
+        and "formula" in node.get("c", [["", [], []]])[0][1]
+        and dict(node["c"][0][2]).get("number")
+    ]
+    if display_math and len(numbered_formulae) < len(display_math):
+        warnings.append(
+            f"Found {len(display_math)} display formula(s), but only {len(numbered_formulae)} use a numbered .formula block; "
+            "this is valid only when the other formulae are not referenced"
+        )
+
+    excluded = set("ҐЄЗІЇЙОЧЬ")
+    for _, text, classes in headings:
+        match = re.match(r"\s*(?:ДОДАТОК|APPENDIX)\s+([A-ZА-ЯҐЄІЇ])", text, re.IGNORECASE)
+        if match and match.group(1).upper() in excluded:
+            warnings.append(f"Appendix label uses an excluded Ukrainian letter: {match.group(1)}")
+        if "appendix" in classes and not match:
+            warnings.append(f"Appendix heading has no visible letter in its title: {text}")
+
+    citations = {citation["citationId"] for node in nodes if node.get("t") == "Cite" for citation in node["c"][0]}
+    if citations and not meta.get("bibliography") and not meta.get("references"):
+        errors.append("Citations are present, but no 'bibliography' file or inline 'references' metadata was supplied")
+
+    applied = [
+        f"Input: {source}",
+        f"Output: {output}",
+        "A4; margins 20 mm top/bottom, 25 mm left, 10 mm right" if not settings["custom_reference"] else "User-supplied reference DOCX (its page geometry and styles override defaults)",
+        "Times New Roman 14 pt body; 1.5 line spacing; 1.25 cm first-line indent; justified" if not settings["custom_reference"] else "Typography is controlled by the user-supplied reference DOCX",
+        "Upper-right page number; hidden on the title page" if not settings["custom_reference"] else "Header/footer behavior is controlled by the user-supplied reference DOCX",
+        (
+            "Numbering mode: none (heading numbers disabled; figures/tables numbered continuously)"
+            if settings["numbering"] == "none"
+            else f"Section/figure/table numbering mode: {settings['numbering']}"
+        ),
+        f"Automatic contents field: {'enabled' if settings['toc'] else 'disabled'}",
+    ]
+    return {"errors": errors, "warnings": warnings, "unverified": unverified, "applied": applied}
+
+
+def set_heading2_bold(styles_path: Path, enabled: bool) -> None:
+    styles = ET.parse(styles_path)
+    root = styles.getroot()
+    heading = root.find(f".//{qn('style')}[@{qn('styleId')}='Heading2']")
+    if heading is None:
+        return
+    properties = heading.find(qn("rPr"))
+    if properties is None:
+        properties = ET.SubElement(heading, qn("rPr"))
+    for tag in ("b", "bCs"):
+        element = properties.find(qn(tag))
+        if enabled:
+            if element is None:
+                ET.SubElement(properties, qn(tag))
+            else:
+                element.attrib.pop(qn("val"), None)
+        elif element is not None:
+            properties.remove(element)
+    styles.write(styles_path, encoding="UTF-8", xml_declaration=True)
+
+
+def normalize_toc_styles(styles_path: Path) -> None:
+    styles = ET.parse(styles_path)
+    root = styles.getroot()
+    for level in range(1, 4):
+        toc = root.find(f".//{qn('style')}[@{qn('styleId')}='TOC{level}']")
+        if toc is None:
+            continue
+        properties = toc.find(qn("pPr"))
+        if properties is None:
+            properties = ET.SubElement(toc, qn("pPr"))
+        tabs = properties.find(qn("tabs"))
+        if tabs is None:
+            tabs = ET.SubElement(properties, qn("tabs"))
+        for old_tab in list(tabs):
+            tabs.remove(old_tab)
+        ET.SubElement(tabs, qn("tab"), {qn("val"): "right", qn("pos"): "9922", qn("leader"): "dot"})
+        spacing = properties.find(qn("spacing"))
+        if spacing is None:
+            spacing = ET.SubElement(properties, qn("spacing"))
+        spacing.set(qn("before"), "0")
+        spacing.set(qn("after"), "0")
+        spacing.set(qn("line"), "360")
+        spacing.set(qn("lineRule"), "auto")
+    styles.write(styles_path, encoding="UTF-8", xml_declaration=True)
+
+
+def normalize_list_numbering(numbering_path: Path) -> None:
+    """Use 14 pt TNR and DSTU-oriented markers/indents for all list levels."""
+    numbering = ET.parse(numbering_path)
+    root = numbering.getroot()
+    for level in root.iter(qn("lvl")):
+        level_index = int(level.get(qn("ilvl"), "0"))
+        number_format = level.find(qn("numFmt"))
+        level_text = level.find(qn("lvlText"))
+        if number_format is not None and level_text is not None:
+            format_name = number_format.get(qn("val"), "")
+            if format_name == "bullet":
+                level_text.set(qn("val"), "–")
+            else:
+                # DSTU-oriented hierarchy: 1., а), i. Word does not expose
+                # a Ukrainian alphabet counter, so level 2 is emitted as
+                # explicit Ukrainian markers during document post-processing.
+                if level_index == 0:
+                    number_format.set(qn("val"), "decimal")
+                    level_text.set(qn("val"), "%1.")
+                elif level_index == 1:
+                    number_format.set(qn("val"), "lowerLetter")
+                    level_text.set(qn("val"), "%2)")
+                elif level_index == 2:
+                    number_format.set(qn("val"), "lowerRoman")
+                    level_text.set(qn("val"), "%3.")
+
+        properties = level.find(qn("pPr"))
+        if properties is None:
+            properties = ET.SubElement(level, qn("pPr"))
+        indent = properties.find(qn("ind"))
+        if indent is None:
+            indent = ET.SubElement(properties, qn("ind"))
+        # The marker/first line stays at 1.25, 2.50, 3.75 cm, while wrapped
+        # text starts 0.75 cm farther right: 2.00, 3.25, 4.50 cm. In Word this
+        # is represented as left indent + a 0.75 cm hanging indent.
+        marker_position = (level_index + 1) * 709
+        hanging = 425  # ≈ 0.75 cm
+        left = marker_position + hanging
+        indent.set(qn("left"), str(left))
+        indent.attrib.pop(qn("firstLine"), None)
+        indent.set(qn("hanging"), str(hanging))
+        tabs = properties.find(qn("tabs"))
+        if tabs is not None:
+            properties.remove(tabs)
+        spacing = properties.find(qn("spacing"))
+        if spacing is None:
+            spacing = ET.SubElement(properties, qn("spacing"))
+        spacing.set(qn("before"), "0")
+        spacing.set(qn("after"), "0")
+        spacing.set(qn("line"), "360")
+        spacing.set(qn("lineRule"), "auto")
+
+        run_properties = level.find(qn("rPr"))
+        if run_properties is None:
+            run_properties = ET.SubElement(level, qn("rPr"))
+        fonts = run_properties.find(qn("rFonts"))
+        if fonts is None:
+            fonts = ET.SubElement(run_properties, qn("rFonts"))
+        for family in ("ascii", "hAnsi", "eastAsia", "cs"):
+            fonts.set(qn(family), "Times New Roman")
+        for size_tag in ("sz", "szCs"):
+            size = run_properties.find(qn(size_tag))
+            if size is None:
+                size = ET.SubElement(run_properties, qn(size_tag))
+            size.set(qn("val"), "28")
+    numbering.write(numbering_path, encoding="UTF-8", xml_declaration=True)
+
+
+def normalize_list_paragraphs(document_root: ET.Element) -> None:
+    for paragraph in document_root.iter(qn("p")):
+        properties = paragraph.find(qn("pPr"))
+        if properties is None:
+            continue
+        numbering = properties.find(qn("numPr"))
+        if numbering is None:
+            continue
+        level = numbering.find(qn("ilvl"))
+        level_index = int(level.get(qn("val"), "0")) if level is not None else 0
+        indent = properties.find(qn("ind"))
+        if indent is None:
+            indent = ET.SubElement(properties, qn("ind"))
+        marker_position = (level_index + 1) * 709
+        hanging = 425  # ≈ 0.75 cm
+        left = marker_position + hanging
+        indent.set(qn("left"), str(left))
+        indent.attrib.pop(qn("firstLine"), None)
+        indent.set(qn("hanging"), str(hanging))
+
+
+def apply_ukrainian_second_level_markers(document_root: ET.Element, numbering_path: Path) -> None:
+    """Replace ordered-list level 2 counters with explicit а), б), в)… markers."""
+    numbering = ET.parse(numbering_path).getroot()
+    abstract_kind: dict[str, str] = {}
+    for abstract in numbering.findall(qn("abstractNum")):
+        first_format = abstract.find(f"./{qn('lvl')}[@{qn('ilvl')}='0']/{qn('numFmt')}")
+        abstract_kind[abstract.get(qn("abstractNumId"), "")] = (
+            first_format.get(qn("val"), "") if first_format is not None else ""
+        )
+    ordered_ids: set[str] = set()
+    for number in numbering.findall(qn("num")):
+        abstract = number.find(qn("abstractNumId"))
+        if abstract is not None and abstract_kind.get(abstract.get(qn("val"), "")) != "bullet":
+            ordered_ids.add(number.get(qn("numId"), ""))
+
+    letters = list("абвгґдеєжзиіїйклмнопрстуфхцчшщьюя")
+    counters: dict[str, int] = {}
+    for paragraph in document_root.iter(qn("p")):
+        number_properties = paragraph.find(f"./{qn('pPr')}/{qn('numPr')}")
+        if number_properties is None:
+            continue
+        level = number_properties.find(qn("ilvl"))
+        number_id = number_properties.find(qn("numId"))
+        if level is None or number_id is None or level.get(qn("val")) != "1":
+            continue
+        num_id = number_id.get(qn("val"), "")
+        if num_id not in ordered_ids:
+            continue
+        position = counters.get(num_id, 0)
+        counters[num_id] = position + 1
+        marker = letters[position] if position < len(letters) else str(position + 1)
+        # Remove automatic numbering only for this paragraph, then prepend an
+        # ordinary editable run. This ensures actual Ukrainian letters.
+        paragraph.find(qn("pPr")).remove(number_properties)
+        run = ET.Element(qn("r"))
+        run_properties = ET.SubElement(run, qn("rPr"))
+        fonts = ET.SubElement(run_properties, qn("rFonts"))
+        for family in ("ascii", "hAnsi", "eastAsia", "cs"):
+            fonts.set(qn(family), "Times New Roman")
+        ET.SubElement(run_properties, qn("sz"), {qn("val"): "28"})
+        ET.SubElement(run_properties, qn("szCs"), {qn("val"): "28"})
+        text_node = ET.SubElement(run, qn("t"), {"{http://www.w3.org/XML/1998/namespace}space": "preserve"})
+        text_node.text = f"{marker}) "
+        first_content = next((i for i, child in enumerate(list(paragraph)) if child.tag != qn("pPr")), len(paragraph))
+        paragraph.insert(first_content, run)
+
+
+def is_title_details_table(table: ET.Element) -> bool:
+    caption = table.find(f"./{qn('tblPr')}/{qn('tblCaption')}")
+    if caption is not None and caption.get(qn("val")) == "md2dstu-title-details":
+        return True
+    # LibreOffice removes tblCaption while populating the contents. The
+    # dedicated cell paragraph style survives that round trip.
+    return any(
+        style.get(qn("val")) == "TitleDetailsCell"
+        for style in table.findall(f".//{qn('pStyle')}")
+    )
+
+
+def set_invisible_table_borders(table: ET.Element) -> None:
+    properties = table.find(qn("tblPr"))
+    if properties is None:
+        properties = ET.Element(qn("tblPr"))
+        table.insert(0, properties)
+    borders = properties.find(qn("tblBorders"))
+    if borders is None:
+        borders = ET.SubElement(properties, qn("tblBorders"))
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        border = borders.find(qn(side))
+        if border is None:
+            border = ET.SubElement(borders, qn(side))
+        border.set(qn("val"), "nil")
+    for cell in table.iter(qn("tc")):
+        properties = cell.find(qn("tcPr"))
+        if properties is None:
+            properties = ET.Element(qn("tcPr"))
+            cell.insert(0, properties)
+        cell_borders = properties.find(qn("tcBorders"))
+        if cell_borders is None:
+            cell_borders = ET.SubElement(properties, qn("tcBorders"))
+        for side in ("top", "left", "bottom", "right"):
+            border = cell_borders.find(qn(side))
+            if border is None:
+                border = ET.SubElement(cell_borders, qn(side))
+            border.set(qn("val"), "nil")
+
+
+def set_table_borders(table: ET.Element) -> None:
+    properties = table.find(qn("tblPr"))
+    if properties is None:
+        properties = ET.Element(qn("tblPr"))
+        table.insert(0, properties)
+    borders = properties.find(qn("tblBorders"))
+    if borders is None:
+        borders = ET.SubElement(properties, qn("tblBorders"))
+    # Word border sizes are eighths of a point: 8 = 1 pt.
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        border = borders.find(qn(side))
+        if border is None:
+            border = ET.SubElement(borders, qn(side))
+        border.set(qn("val"), "single")
+        border.set(qn("sz"), "8")
+        border.set(qn("space"), "0")
+        border.set(qn("color"), "000000")
+    # Direct cell borders emitted by Pandoc/LibreOffice override table-level
+    # borders, so normalize every cell edge as well.
+    for cell in table.iter(qn("tc")):
+        cell_properties = cell.find(qn("tcPr"))
+        if cell_properties is None:
+            cell_properties = ET.Element(qn("tcPr"))
+            cell.insert(0, cell_properties)
+        cell_borders = cell_properties.find(qn("tcBorders"))
+        if cell_borders is None:
+            cell_borders = ET.SubElement(cell_properties, qn("tcBorders"))
+        for side in ("top", "left", "bottom", "right"):
+            border = cell_borders.find(qn(side))
+            if border is None:
+                border = ET.SubElement(cell_borders, qn(side))
+            border.set(qn("val"), "single")
+            border.set(qn("sz"), "8")
+            border.set(qn("space"), "0")
+            border.set(qn("color"), "000000")
+
+
+def set_page_number_font(unpacked: Path) -> None:
+    """Force PAGE fields in all generated headers to TNR 10 pt."""
+    for header_path in (unpacked / "word").glob("header*.xml"):
+        header = ET.parse(header_path)
+        changed = False
+        for paragraph in header.getroot().iter(qn("p")):
+            has_page = any("PAGE" in (item.text or "") for item in paragraph.iter(qn("instrText")))
+            if not has_page:
+                continue
+            for run in paragraph.findall(qn("r")):
+                properties = run.find(qn("rPr"))
+                if properties is None:
+                    properties = ET.Element(qn("rPr"))
+                    run.insert(0, properties)
+                fonts = properties.find(qn("rFonts"))
+                if fonts is None:
+                    fonts = ET.SubElement(properties, qn("rFonts"))
+                for family in ("ascii", "hAnsi", "eastAsia", "cs"):
+                    fonts.set(qn(family), "Times New Roman")
+                for size_name in ("sz", "szCs"):
+                    size = properties.find(qn(size_name))
+                    if size is None:
+                        size = ET.SubElement(properties, qn(size_name))
+                    size.set(qn("val"), "20")
+                changed = True
+        if changed:
+            header.write(header_path, encoding="UTF-8", xml_declaration=True)
+
+
+def collapse_adjacent_heading_spacing(document_root: ET.Element) -> None:
+    body = document_root.find(qn("body"))
+    if body is None:
+        return
+    paragraphs = [child for child in body if child.tag == qn("p")]
+    for first, second in zip(paragraphs, paragraphs[1:]):
+        first_style = first.find(f"./{qn('pPr')}/{qn('pStyle')}")
+        second_style = second.find(f"./{qn('pPr')}/{qn('pStyle')}")
+        if (
+            first_style is None
+            or second_style is None
+            or first_style.get(qn("val")) != "Heading1"
+            or second_style.get(qn("val")) != "Heading2"
+        ):
+            continue
+        for paragraph, attribute in ((first, "after"), (second, "before")):
+            properties = paragraph.find(qn("pPr"))
+            spacing = properties.find(qn("spacing"))
+            if spacing is None:
+                spacing = ET.SubElement(properties, qn("spacing"))
+            spacing.set(qn(attribute), "0")
+
+
+def sentence_case_toc(path: Path) -> None:
+    """Use sentence case for TOC display text without changing body headings."""
+    with tempfile.TemporaryDirectory(prefix="md2dstu-toc-case-") as temporary:
+        unpacked = Path(temporary)
+        with zipfile.ZipFile(path) as archive:
+            archive.extractall(unpacked)
+        document_path = unpacked / "word" / "document.xml"
+        document = ET.parse(document_path)
+        for control in document.getroot().iter(qn("sdt")):
+            gallery = control.find(f".//{qn('docPartGallery')}")
+            if gallery is None or gallery.get(qn("val")) != "Table of Contents":
+                continue
+            for paragraph in control.iter(qn("p")):
+                style = paragraph.find(f"./{qn('pPr')}/{qn('pStyle')}")
+                style_name = style.get(qn("val"), "") if style is not None else ""
+                if not re.fullmatch(r"TOC[1-9]", style_name):
+                    continue
+                text_nodes = list(paragraph.iter(qn("t")))
+                if not text_nodes:
+                    continue
+                # A populated TOC entry normally keeps its title and page
+                # number in separate text nodes. Never alter the final page.
+                title_nodes = text_nodes[:-1] if len(text_nodes) > 1 and (text_nodes[-1].text or "").isdigit() else text_nodes
+                title = "".join(node.text or "" for node in title_nodes)
+                lowered = toc_sentence_case(title)
+                offset = 0
+                for node in title_nodes:
+                    length = len(node.text or "")
+                    node.text = lowered[offset : offset + length]
+                    offset += length
+                for hyperlink in paragraph.iter(qn("hyperlink")):
+                    tooltip = hyperlink.get(qn("tooltip"))
+                    if tooltip:
+                        hyperlink.set(qn("tooltip"), toc_sentence_case(tooltip))
+        document.write(document_path, encoding="UTF-8", xml_declaration=True)
+        rebuilt = path.with_suffix(path.suffix + ".toc-case")
+        with zipfile.ZipFile(rebuilt, "w", zipfile.ZIP_DEFLATED) as archive:
+            for item in sorted(unpacked.rglob("*")):
+                if item.is_file():
+                    archive.write(item, item.relative_to(unpacked).as_posix())
+        os.replace(rebuilt, path)
+
+
+def toc_sentence_case(value: str) -> str:
+    lowered = value.lower()
+    first_letter = next((i for i, char in enumerate(lowered) if char.isalpha()), None)
+    if first_letter is None:
+        return lowered
+    lowered = lowered[:first_letter] + lowered[first_letter].upper() + lowered[first_letter + 1 :]
+    # Appendix labels are identifiers, not ordinary words.
+    lowered = re.sub(r"^(Додаток|Appendix)\s+([а-яa-z])\b", lambda m: f"{m.group(1)} {m.group(2).upper()}", lowered)
+    return lowered
+
+
+def postprocess_docx(path: Path, *, heading2_bold: bool = False) -> None:
+    """Set fields/table behavior and keep Pandoc's TOC after the title page."""
+    with tempfile.TemporaryDirectory(prefix="md2dstu-post-") as temporary:
+        unpacked = Path(temporary)
+        with zipfile.ZipFile(path) as archive:
+            archive.extractall(unpacked)
+
+        set_heading2_bold(unpacked / "word" / "styles.xml", heading2_bold)
+        normalize_toc_styles(unpacked / "word" / "styles.xml")
+        normalize_list_numbering(unpacked / "word" / "numbering.xml")
+        set_page_number_font(unpacked)
+
+        settings_path = unpacked / "word" / "settings.xml"
+        settings = ET.parse(settings_path)
+        root = settings.getroot()
+        update = root.find(qn("updateFields"))
+        if update is None:
+            update = ET.SubElement(root, qn("updateFields"))
+        update.set(qn("val"), "false")
+        settings.write(settings_path, encoding="UTF-8", xml_declaration=True)
+
+        document_path = unpacked / "word" / "document.xml"
+        document = ET.parse(document_path)
+        document_root = document.getroot()
+        normalize_list_paragraphs(document_root)
+        apply_ukrainian_second_level_markers(document_root, unpacked / "word" / "numbering.xml")
+        collapse_adjacent_heading_spacing(document_root)
+        body = document_root.find(qn("body"))
+        if body is not None:
+            toc = next(
+                (
+                    item
+                    for item in list(body)
+                    if any((field.text or "").lstrip().startswith("TOC ") for field in item.iter(qn("instrText")))
+                ),
+                None,
+            )
+            if toc is not None:
+                children = list(body)
+                toc_index = children.index(toc)
+                page_break_index = next(
+                    (
+                        index
+                        for index, item in enumerate(children)
+                        if any(br.get(qn("type")) == "page" for br in item.iter(qn("br")))
+                    ),
+                    None,
+                )
+                if page_break_index is not None and toc_index < page_break_index:
+                    body.remove(toc)
+                    body.insert(page_break_index, toc)
+
+        for table in document_root.iter(qn("tbl")):
+            if is_title_details_table(table):
+                set_invisible_table_borders(table)
+            else:
+                set_table_borders(table)
+            first_row = table.find(qn("tr"))
+            if first_row is None:
+                continue
+            properties = first_row.find(qn("trPr"))
+            if properties is None:
+                properties = ET.Element(qn("trPr"))
+                first_row.insert(0, properties)
+            if properties.find(qn("tblHeader")) is None:
+                ET.SubElement(properties, qn("tblHeader"), {qn("val"): "true"})
+        document.write(document_path, encoding="UTF-8", xml_declaration=True)
+
+        rebuilt = path.with_suffix(path.suffix + ".new")
+        with zipfile.ZipFile(rebuilt, "w", zipfile.ZIP_DEFLATED) as archive:
+            for item in sorted(unpacked.rglob("*")):
+                if item.is_file():
+                    archive.write(item, item.relative_to(unpacked).as_posix())
+        os.replace(rebuilt, path)
+
+
+def validation_text(result: dict[str, Any]) -> str:
+    status = "FAIL" if result["errors"] else ("PASS WITH WARNINGS" if result["warnings"] else "PASS")
+    lines = [f"DSTU conversion validation: {status}", "", "Applied settings:"]
+    lines.extend(f"- {item}" for item in result["applied"])
+    lines.extend(["", "Errors:"])
+    lines.extend([f"- {item}" for item in result["errors"]] or ["- None"])
+    lines.extend(["", "Warnings:"])
+    lines.extend([f"- {item}" for item in result["warnings"]] or ["- None"])
+    lines.extend(["", "Not automatically verified:"])
+    lines.extend(f"- {item}" for item in result["unverified"])
+    lines.extend(
+        [
+            "",
+            "This report checks the project profile summarized in DSTU.md. It is not a certificate of full",
+            "DSTU 3008:2015 or institution-specific compliance. Refresh fields and visually inspect the final file.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def update_contents_with_libreoffice(docx: Path, work: Path) -> None:
+    """Populate DOCX contents and page numbers using an isolated Writer process."""
+    try:
+        import uno  # type: ignore
+        from com.sun.star.beans import PropertyValue  # type: ignore
+    except ImportError as exc:
+        raise ConversionError(
+            "LibreOffice Python/UNO bindings are missing; use --no-update-toc or install the pyuno package"
+        ) from exc
+
+    import socket
+    import time
+
+    def property_value(name: str, value: Any):
+        item = PropertyValue()
+        item.Name = name
+        item.Value = value
+        return item
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+
+    profile = work / "toc-profile"
+    profile.mkdir()
+    process = subprocess.Popen(
+        [
+            "libreoffice",
+            "--headless",
+            "--nologo",
+            "--nodefault",
+            "--nofirststartwizard",
+            "--norestore",
+            f"-env:UserInstallation={profile.as_uri()}",
+            f"--accept=socket,host=127.0.0.1,port={port};urp;StarOffice.ComponentContext",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    document = None
+    try:
+        local = uno.getComponentContext()
+        resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
+        remote = None
+        for _ in range(100):
+            if process.poll() is not None:
+                detail = process.stderr.read().strip() if process.stderr else ""
+                raise ConversionError(f"LibreOffice stopped while starting TOC update: {detail or 'unknown error'}")
+            try:
+                remote = resolver.resolve(
+                    f"uno:socket,host=127.0.0.1,port={port};urp;StarOffice.ComponentContext"
+                )
+                break
+            except Exception:
+                time.sleep(0.1)
+        if remote is None:
+            raise ConversionError("Timed out while starting LibreOffice to populate the contents")
+        desktop = remote.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", remote)
+        document = desktop.loadComponentFromURL(
+            docx.resolve().as_uri(),
+            "_blank",
+            0,
+            (property_value("Hidden", True), property_value("ReadOnly", False)),
+        )
+        if document is None:
+            raise ConversionError("LibreOffice could not open the generated DOCX to populate the contents")
+        indexes = document.getDocumentIndexes()
+        for index in range(indexes.getCount()):
+            contents = indexes.getByIndex(index)
+            contents.update()
+            # Word/Writer TOC levels default to inherited formatting. Set
+            # sentence case in generated entries while leaving source
+            # headings uppercase as required by the report body.
+        document.store()
+        document.close(True)
+        document = None
+    except ConversionError:
+        raise
+    except Exception as exc:
+        raise ConversionError(f"LibreOffice could not populate the contents: {exc}") from exc
+    finally:
+        if document is not None:
+            try:
+                document.close(True)
+            except Exception:
+                pass
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+    sentence_case_toc(docx)
+
+
+def convert_with_libreoffice(docx: Path, output: Path, work: Path) -> Path:
+    if not shutil.which("libreoffice"):
+        raise ConversionError(f"LibreOffice is required to create legacy {output.suffix} files")
+    extension = output.suffix.lower()
+    target = "doc:MS Word 97" if extension == ".doc" else "odt"
+    profile = work / "lo-profile"
+    profile.mkdir()
+    command(
+        [
+            "libreoffice",
+            "--headless",
+            f"-env:UserInstallation={profile.as_uri()}",
+            "--convert-to",
+            target,
+            "--outdir",
+            str(work),
+            str(docx),
+        ]
+    )
+    converted = work / f"{docx.stem}{extension}"
+    if not converted.exists():
+        raise ConversionError(f"LibreOffice did not create the expected {extension} file")
+    return converted
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="md2dstu",
+        description="Convert Markdown/Org to a DSTU-oriented DOCX, DOC, or ODT report.",
+    )
+    parser.add_argument("input", type=Path, help="UTF-8 .md or .org source")
+    parser.add_argument("-o", "--output", type=Path, help="output .docx, .doc, or .odt path")
+    parser.add_argument("--metadata-file", action="append", default=[], type=Path, help="YAML metadata file (repeatable)")
+    parser.add_argument("--reference-doc", type=Path, help="institutional DOCX template; overrides project formatting")
+    parser.add_argument("--resource-path", action="append", default=[], type=Path, help="additional image/resource directory")
+    parser.add_argument(
+        "--numbering",
+        choices=("section", "continuous", "none"),
+        help="numbering mode: section, continuous, or none (none disables heading numbers only)",
+    )
+    parser.add_argument("--toc", action=argparse.BooleanOptionalAction, default=None, help="insert an automatic contents field")
+    parser.add_argument(
+        "--bold-heading2",
+        action="store_true",
+        help="make level-2 headings bold in the generated document",
+    )
+    parser.add_argument(
+        "--no-update-toc",
+        action="store_true",
+        help="do not use LibreOffice to populate the automatic contents",
+    )
+    parser.add_argument("--check", action="store_true", help="return status 2 when structural validation fails")
+    parser.add_argument("--report", type=Path, help="validation report path (default: OUTPUT.validation.txt)")
+    parser.add_argument("--keep-docx", action="store_true", help="also keep the intermediate DOCX when output is DOC/ODT")
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    source = args.input.resolve()
+    if not source.is_file():
+        raise ConversionError(f"Input file does not exist: {source}")
+    fmt = source_format(source)
+    metadata_files = [item.resolve() for item in args.metadata_file]
+    for metadata in metadata_files:
+        if not metadata.is_file():
+            raise ConversionError(f"Metadata file does not exist: {metadata}")
+
+    output = (args.output or source.with_suffix(".docx")).resolve()
+    if output.suffix.lower() not in {".docx", ".doc", ".odt"}:
+        raise ConversionError("Output extension must be .docx, .doc, or .odt")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not os.access(output.parent, os.W_OK):
+        raise ConversionError(f"Output directory is not writable: {output.parent}")
+
+    reference = (args.reference_doc or DEFAULT_REFERENCE).resolve()
+    if not reference.is_file():
+        hint = "Run: python3 tools/build_reference.py" if not args.reference_doc else "Check --reference-doc"
+        raise ConversionError(f"Reference DOCX does not exist: {reference}. {hint}")
+    if not FILTER.is_file() or not CSL.is_file():
+        raise ConversionError("Project filter/CSL resources are missing; keep the md2dstu project directory intact")
+
+    ast, ast_warnings = ast_for(source, fmt, metadata_files)
+    meta = {key: meta_plain(value) for key, value in ast.get("meta", {}).items()}
+    numbering = args.numbering or str(meta.get("numbering", "section"))
+    if numbering not in {"section", "continuous", "none"}:
+        raise ConversionError("Metadata 'numbering' must be 'section', 'continuous', or 'none'")
+    toc = args.toc if args.toc is not None else bool(meta.get("toc", False))
+    resource_dirs = [item.resolve() for item in args.resource_path]
+    settings = {
+        "numbering": numbering,
+        "toc": toc,
+        "custom_reference": bool(args.reference_doc),
+        "resource_dirs": resource_dirs,
+    }
+    validation = validate(ast, source, output, settings)
+    if ast_warnings.strip():
+        validation["warnings"].extend(line for line in ast_warnings.splitlines() if line.strip())
+
+    with tempfile.TemporaryDirectory(prefix="md2dstu-") as temporary:
+        work = Path(temporary)
+        draft = work / "document.docx"
+        resources = [source.parent, *resource_dirs]
+        pandoc_args = [
+            "pandoc",
+            str(source),
+            "--from",
+            fmt,
+            "--to",
+            "docx",
+            "--standalone",
+            "--reference-doc",
+            str(reference),
+            "--lua-filter",
+            str(FILTER),
+            "--citeproc",
+            "--csl",
+            str(CSL),
+            "--metadata",
+            f"numbering={numbering}",
+            "--metadata",
+            f"toc={'true' if toc else 'false'}",
+            "--resource-path",
+            os.pathsep.join(str(item) for item in resources),
+            "--output",
+            str(draft),
+        ]
+        if numbering != "none":
+            pandoc_args.append("--number-sections")
+        for metadata in metadata_files:
+            pandoc_args.extend(["--metadata-file", str(metadata)])
+        if toc:
+            pandoc_args.extend(["--toc", "--toc-depth=3", "--metadata", "toc-title=ЗМІСТ"])
+        result = command(pandoc_args, cwd=source.parent)
+        for line in result.stderr.splitlines():
+            if line.strip():
+                validation["warnings"].append(f"Pandoc: {line.strip()}")
+        postprocess_docx(draft, heading2_bold=args.bold_heading2)
+        if toc and not args.no_update_toc:
+            if shutil.which("libreoffice"):
+                update_contents_with_libreoffice(draft, work)
+                # LibreOffice rewrites headers, table borders, and styles
+                # while storing the populated TOC; re-assert exact properties.
+                postprocess_docx(draft, heading2_bold=args.bold_heading2)
+            else:
+                validation["warnings"].append(
+                    "LibreOffice is unavailable, so the contents field was inserted but not populated; update it in Word/LibreOffice"
+                )
+
+        if output.suffix.lower() == ".docx":
+            publish_file(draft, output)
+        else:
+            converted = convert_with_libreoffice(draft, output, work)
+            publish_file(converted, output)
+            if args.keep_docx:
+                publish_file(draft, output.with_suffix(".docx"))
+
+    report = (args.report or Path(str(output) + ".validation.txt")).resolve()
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report_temp = report.with_suffix(report.suffix + ".tmp")
+    report_temp.write_text(validation_text(validation), encoding="utf-8")
+    os.replace(report_temp, report)
+
+    print(f"Created: {output}")
+    print(f"Validation: {report}")
+    print(f"Status: {'FAIL' if validation['errors'] else ('PASS WITH WARNINGS' if validation['warnings'] else 'PASS')}")
+    if validation["errors"]:
+        for item in validation["errors"]:
+            print(f"  error: {item}", file=sys.stderr)
+    return 2 if args.check and validation["errors"] else 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except ConversionError as exc:
+        print(f"md2dstu: {exc}", file=sys.stderr)
+        raise SystemExit(1)

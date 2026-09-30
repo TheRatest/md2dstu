@@ -1,0 +1,26 @@
+DSTU conversion validation: PASS WITH WARNINGS
+
+Applied settings:
+- Input: /home/ratest/Projects/md-to-dstu/examples/report-minimal.md
+- Output: /home/ratest/Projects/md-to-dstu/report-minimal.docx
+- A4; margins 20 mm top/bottom, 25 mm left, 10 mm right
+- Times New Roman 14 pt body; 1.5 line spacing; 1.25 cm first-line indent; justified
+- Upper-right page number; hidden on the title page
+- Numbering mode: none (heading numbers disabled; figures/tables numbered continuously)
+- Automatic contents field: disabled
+
+Errors:
+- None
+
+Warnings:
+- Structural heading is absent (supported): abstract/РЕФЕРАТ
+- Structural heading is absent (supported): introduction/ВСТУП
+
+Not automatically verified:
+- Correctness and completeness of bibliographic descriptions
+- Whether every formula, figure, table, and appendix is cited at the proper point in the prose
+- Visual pagination (widows/orphans, overflow, image legibility, and exact TOC page numbers)
+- Institution-specific approval blocks and signatures
+
+This report checks the project profile summarized in DSTU.md. It is not a certificate of full
+DSTU 3008:2015 or institution-specific compliance. Refresh fields and visually inspect the final file.

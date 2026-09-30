@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<style xmlns="http://purl.org/net/xbiblio/csl" class="in-text" version="1.0" default-locale="uk-UA">
+  <info>
+    <title>Project numeric citations for DSTU reports</title>
+    <id>https://local.invalid/styles/md2dstu-numeric</id>
+    <link href="https://local.invalid/styles/md2dstu-numeric" rel="self"/>
+    <summary>Numeric citations in first-appearance order. Bibliographic descriptions require manual DSTU verification.</summary>
+    <updated>2026-09-30T00:00:00+00:00</updated>
+  </info>
+  <macro name="author">
+    <names variable="author">
+      <name name-as-sort-order="all" sort-separator=", " initialize-with=". " delimiter=", " and="text"/>
+      <substitute><text variable="publisher"/><text variable="title"/></substitute>
+    </names>
+  </macro>
+  <macro name="issued">
+    <date variable="issued"><date-part name="year"/></date>
+  </macro>
+  <citation collapse="citation-number">
+    <sort><key variable="citation-number"/></sort>
+    <layout prefix="[" suffix="]" delimiter=", "><text variable="citation-number"/></layout>
+  </citation>
+  <bibliography entry-spacing="0">
+    <sort><key variable="citation-number"/></sort>
+    <layout suffix=".">
+      <text variable="citation-number" suffix=". "/>
+      <group delimiter=". ">
+        <text macro="author"/>
+        <text variable="title"/>
+        <text variable="container-title"/>
+        <group delimiter=", "><text variable="publisher-place"/><text variable="publisher"/><text macro="issued"/></group>
+        <group delimiter=", "><text variable="volume" prefix="Т. "/><text variable="issue" prefix="№ "/><text variable="page" prefix="С. "/></group>
+        <text variable="DOI" prefix="DOI: "/>
+        <text variable="URL"/>
+      </group>
+    </layout>
+  </bibliography>
+</style>

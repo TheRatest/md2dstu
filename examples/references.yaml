@@ -1,0 +1,12 @@
+references:
+  - id: example
+    type: report
+    author:
+      - family: "Прізвище"
+        given: "Ім'я"
+    title: "Назва джерела"
+    publisher: "Назва установи"
+    publisher-place: "Київ"
+    issued:
+      date-parts:
+        - [2026]
