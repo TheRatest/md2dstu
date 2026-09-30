@@ -1,304 +1,599 @@
 #!/usr/bin/env python3
-"""Build the deterministic DSTU reference DOCX used by md2dstu."""
+"""Build the deterministic DSTU 3008:2015 reference DOCX template used by md2dstu."""
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
-from copy import deepcopy
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+# Ensure md2dstu package can be imported from src/
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
-ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / "templates" / "dstu-reference.docx"
-W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
-CONTENT = "http://schemas.openxmlformats.org/package/2006/content-types"
-ET.register_namespace("w", W)
-ET.register_namespace("r", R)
-ET.register_namespace("", PKG_REL)
-
-
-def qn(namespace: str, name: str) -> str:
-    return f"{{{namespace}}}{name}"
-
-
-def child(parent: ET.Element, name: str, **attributes: str) -> ET.Element:
-    return ET.SubElement(parent, qn(W, name), {qn(W, key): value for key, value in attributes.items()})
-
-
-def style(root: ET.Element, style_id: str) -> ET.Element:
-    found = root.find(f".//{qn(W, 'style')}[@{qn(W, 'styleId')}='{style_id}']")
-    if found is None:
-        raise RuntimeError(f"Pandoc default reference does not contain style {style_id}")
-    return found
-
-
-def replace_properties(owner: ET.Element, tag: str) -> ET.Element:
-    old = owner.find(qn(W, tag))
-    if old is not None:
-        owner.remove(old)
-    result = ET.Element(qn(W, tag))
-    owner.append(result)
-    return result
-
-
-def run_properties(owner: ET.Element, *, size: int = 28, bold: bool = False, italic: bool = False) -> ET.Element:
-    props = replace_properties(owner, "rPr")
-    child(props, "rFonts", ascii="Times New Roman", hAnsi="Times New Roman", eastAsia="Times New Roman", cs="Times New Roman")
-    child(props, "color", val="000000")
-    if bold:
-        child(props, "b")
-        child(props, "bCs")
-    if italic:
-        child(props, "i")
-        child(props, "iCs")
-    child(props, "sz", val=str(size))
-    child(props, "szCs", val=str(size))
-    return props
+from md2dstu.constants import (
+    CONTENT_TYPES_NAMESPACE,
+    DEFAULT_REFERENCE_DOCX_PATH,
+    FONT_NAME_TIMES,
+    FONT_SIZE_BODY_HALF_POINTS,
+    FONT_SIZE_FOOTNOTE_HALF_POINTS,
+    FONT_SIZE_PAGE_NUMBER_HALF_POINTS,
+    INDENT_FIRST_LINE_DXA,
+    LINE_SPACING_1_5,
+    LINE_SPACING_SINGLE,
+    MARGIN_BOTTOM_DXA,
+    MARGIN_FOOTER_DXA,
+    MARGIN_HEADER_DXA,
+    MARGIN_LEFT_DXA,
+    MARGIN_RIGHT_DXA,
+    MARGIN_TOP_DXA,
+    PAGE_A4_HEIGHT_DXA,
+    PAGE_A4_WIDTH_DXA,
+    PAGE_CONTENT_CENTER_DXA,
+    PAGE_CONTENT_WIDTH_DXA,
+    PKG_REL_NAMESPACE,
+    R_NAMESPACE,
+    TITLE_SPACER_BOTTOM_DXA,
+    TITLE_SPACER_MIDDLE_DXA,
+    TITLE_SPACER_TOP_DXA,
+)
+from md2dstu.docx.namespaces import (
+    child_element,
+    openxml_tag,
+    register_openxml_namespaces,
+    w_tag,
+)
+from md2dstu.docx.styles import apply_paragraph_properties, apply_run_properties
+from md2dstu.exceptions import ExternalToolError
 
 
-def paragraph_properties(
-    owner: ET.Element,
-    *,
-    align: str = "both",
-    before: int = 0,
-    after: int = 0,
-    line: int = 360,
-    first_line: int | None = 709,
-    keep_next: bool = False,
-    page_before: bool = False,
-    outline: int | None = None,
-) -> ET.Element:
-    props = replace_properties(owner, "pPr")
-    if keep_next:
-        child(props, "keepNext")
-    if page_before:
-        child(props, "pageBreakBefore")
-    child(props, "widowControl")
-    child(props, "spacing", before=str(before), after=str(after), line=str(line), lineRule="auto")
-    if first_line is not None:
-        child(props, "ind", firstLine=str(first_line))
-    child(props, "jc", val=align)
-    if outline is not None:
-        child(props, "outlineLvl", val=str(outline))
-    return props
+class DstuReferenceBuilder:
+    """Constructs the reference DOCX template encoding all DSTU layout and styling rules."""
 
+    def __init__(self, target_path: Path = DEFAULT_REFERENCE_DOCX_PATH) -> None:
+        self.target_path = target_path
 
-def add_paragraph_style(
-    root: ET.Element,
-    style_id: str,
-    name: str,
-    *,
-    based_on: str = "Normal",
-    next_style: str = "BodyText",
-    size: int = 28,
-    bold: bool = False,
-    italic: bool = False,
-    align: str = "both",
-    before: int = 0,
-    after: int = 0,
-    line: int = 360,
-    first_line: int | None = 709,
-    keep_next: bool = False,
-    page_before: bool = False,
-) -> ET.Element:
-    existing = root.find(f".//{qn(W, 'style')}[@{qn(W, 'styleId')}='{style_id}']")
-    if existing is not None:
-        root.remove(existing)
-    node = ET.SubElement(root, qn(W, "style"), {qn(W, "type"): "paragraph", qn(W, "styleId"): style_id, qn(W, "customStyle"): "1"})
-    child(node, "name", val=name)
-    child(node, "basedOn", val=based_on)
-    child(node, "next", val=next_style)
-    child(node, "qFormat")
-    paragraph_properties(node, align=align, before=before, after=after, line=line, first_line=first_line, keep_next=keep_next, page_before=page_before)
-    run_properties(node, size=size, bold=bold, italic=italic)
-    return node
+    def build(self) -> Path:
+        """Generate the reference DOCX file using Pandoc default template as baseline."""
+        if shutil.which("pandoc") is None:
+            raise ExternalToolError(
+                "Program 'pandoc' is required to build the reference DOCX."
+            )
 
+        register_openxml_namespaces()
+        self.target_path.parent.mkdir(parents=True, exist_ok=True)
 
-def write_xml(tree: ET.ElementTree, path: Path) -> None:
-    tree.write(path, encoding="UTF-8", xml_declaration=True)
+        with tempfile.TemporaryDirectory(prefix="md2dstu-ref-build-") as temporary_dir:
+            work_dir = Path(temporary_dir)
+            default_template = work_dir / "default_pandoc_reference.docx"
 
+            # 1. Extract default Pandoc reference DOCX
+            with default_template.open("wb") as stream:
+                subprocess.run(
+                    ["pandoc", "--print-default-data-file", "reference.docx"],
+                    check=True,
+                    stdout=stream,
+                )
 
-def build() -> None:
-    if shutil.which("pandoc") is None:
-        raise SystemExit("pandoc is required to build the reference DOCX")
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+            unpacked_dir = work_dir / "unpacked"
+            with zipfile.ZipFile(default_template) as archive:
+                archive.extractall(unpacked_dir)
 
-    with tempfile.TemporaryDirectory(prefix="md2dstu-reference-") as temporary:
-        work = Path(temporary)
-        default = work / "default.docx"
-        with default.open("wb") as stream:
-            subprocess.run(["pandoc", "--print-default-data-file", "reference.docx"], check=True, stdout=stream)
-        unpacked = work / "unpacked"
-        with zipfile.ZipFile(default) as archive:
-            archive.extractall(unpacked)
+            # 2. Configure styles.xml
+            styles_path = unpacked_dir / "word" / "styles.xml"
+            styles_tree = ET.parse(styles_path)
+            self._configure_styles(styles_tree.getroot())
+            styles_tree.write(styles_path, encoding="UTF-8", xml_declaration=True)
 
-        styles_path = unpacked / "word" / "styles.xml"
-        styles_tree = ET.parse(styles_path)
-        styles = styles_tree.getroot()
+            # 3. Configure page geometry and section properties in document.xml
+            document_path = unpacked_dir / "word" / "document.xml"
+            document_tree = ET.parse(document_path)
+            body = document_tree.getroot().find(w_tag("body"))
+            if body is not None:
+                self._configure_page_geometry(body)
+            document_tree.write(document_path, encoding="UTF-8", xml_declaration=True)
 
-        defaults = styles.find(qn(W, "docDefaults"))
-        if defaults is None:
-            defaults = ET.Element(qn(W, "docDefaults"))
-            styles.insert(0, defaults)
-        run_default = defaults.find(qn(W, "rPrDefault"))
+            # 4. Create and attach header1.xml for right-aligned page numbering
+            self._create_header_part(unpacked_dir)
+
+            # 5. Configure settings.xml (disable auto-field update on open, paragraph compatibility)
+            settings_path = unpacked_dir / "word" / "settings.xml"
+            settings_tree = ET.parse(settings_path)
+            self._configure_settings(settings_tree.getroot())
+            settings_tree.write(settings_path, encoding="UTF-8", xml_declaration=True)
+
+            # 6. Repack into final reference DOCX
+            rebuilt_docx = work_dir / "reference.docx"
+            with zipfile.ZipFile(rebuilt_docx, "w", zipfile.ZIP_DEFLATED) as archive:
+                for item in sorted(unpacked_dir.rglob("*")):
+                    if item.is_file():
+                        archive.write(item, item.relative_to(unpacked_dir).as_posix())
+
+            shutil.copy2(rebuilt_docx, self.target_path)
+
+        return self.target_path
+
+    def _configure_styles(self, styles_root: ET.Element) -> None:
+        """Apply DSTU fonts, sizes, indents, and custom styles."""
+        # Defaults
+        doc_defaults = styles_root.find(w_tag("docDefaults"))
+        if doc_defaults is None:
+            doc_defaults = ET.Element(w_tag("docDefaults"))
+            styles_root.insert(0, doc_defaults)
+
+        run_default = doc_defaults.find(w_tag("rPrDefault"))
         if run_default is None:
-            run_default = ET.SubElement(defaults, qn(W, "rPrDefault"))
-        run_properties(run_default, size=28)
-        para_default = defaults.find(qn(W, "pPrDefault"))
+            run_default = ET.SubElement(doc_defaults, w_tag("rPrDefault"))
+        apply_run_properties(run_default, size_half_points=FONT_SIZE_BODY_HALF_POINTS)
+
+        para_default = doc_defaults.find(w_tag("pPrDefault"))
         if para_default is None:
-            para_default = ET.SubElement(defaults, qn(W, "pPrDefault"))
-        paragraph_properties(para_default, first_line=709)
+            para_default = ET.SubElement(doc_defaults, w_tag("pPrDefault"))
+        apply_paragraph_properties(
+            para_default, first_line_indent=INDENT_FIRST_LINE_DXA
+        )
 
-        normal = style(styles, "Normal")
-        paragraph_properties(normal)
-        run_properties(normal)
+        # Standard styles
+        normal = self._get_or_create_style(styles_root, "Normal")
+        apply_paragraph_properties(normal)
+        apply_run_properties(normal)
+
         for style_id in ("BodyText", "FirstParagraph"):
-            node = style(styles, style_id)
-            paragraph_properties(node)
-            run_properties(node)
-        compact = style(styles, "Compact")
-        paragraph_properties(compact, line=360, first_line=0)
-        run_properties(compact, size=28)
+            elem = self._get_or_create_style(styles_root, style_id)
+            apply_paragraph_properties(elem)
+            apply_run_properties(elem)
 
+        compact = self._get_or_create_style(styles_root, "Compact")
+        apply_paragraph_properties(
+            compact, line_spacing=LINE_SPACING_1_5, first_line_indent=0
+        )
+        apply_run_properties(compact, size_half_points=FONT_SIZE_BODY_HALF_POINTS)
+
+        # Heading 1..9
         for level in range(1, 10):
-            node = style(styles, f"Heading{level}")
+            heading_elem = self._get_or_create_style(styles_root, f"Heading{level}")
             if level == 1:
-                paragraph_properties(node, align="center", before=360, after=360, first_line=0, keep_next=True, page_before=True, outline=0)
-                run_properties(node, bold=True)
+                # Level 1: Centered, bold, uppercase semantics, page break before
+                apply_paragraph_properties(
+                    heading_elem,
+                    alignment="center",
+                    spacing_before=LINE_SPACING_1_5,
+                    spacing_after=LINE_SPACING_1_5,
+                    first_line_indent=0,
+                    keep_with_next=True,
+                    page_break_before=True,
+                    outline_level=0,
+                )
+                apply_run_properties(heading_elem, bold=True)
             else:
-                paragraph_properties(node, align="left", before=360, after=360, first_line=709, keep_next=True, outline=level - 1)
-                run_properties(node, bold=False)
+                # Level 2+: Left-aligned, first-line indent 1.25 cm, regular weight
+                apply_paragraph_properties(
+                    heading_elem,
+                    alignment="left",
+                    spacing_before=LINE_SPACING_1_5,
+                    spacing_after=LINE_SPACING_1_5,
+                    first_line_indent=INDENT_FIRST_LINE_DXA,
+                    keep_with_next=True,
+                    outline_level=level - 1,
+                )
+                apply_run_properties(heading_elem, bold=False)
 
-        add_paragraph_style(styles, "TableCaption", "Table Caption", align="left", first_line=709, keep_next=True, after=0)
-        add_paragraph_style(styles, "ImageCaption", "Image Caption", align="center", first_line=0, keep_next=False, before=0, after=0)
-        add_paragraph_style(styles, "CaptionedFigure", "Captioned Figure", align="center", first_line=0, keep_next=True)
-        add_paragraph_style(styles, "Figure", "Figure", align="center", first_line=0)
-        add_paragraph_style(styles, "Bibliography", "Bibliography", first_line=709, line=360)
-        add_paragraph_style(styles, "FootnoteText", "Footnote Text", size=24, line=240, first_line=0)
-        add_paragraph_style(styles, "BlockText", "Block Text", first_line=0, align="left")
-        add_paragraph_style(styles, "TOCHeading", "TOC Heading", bold=True, align="center", first_line=0, page_before=True, keep_next=True, before=0, after=360)
-        add_paragraph_style(styles, "AbstractHeading", "Abstract Heading", bold=True, align="center", first_line=0, page_before=True, keep_next=True, before=360, after=360)
-        add_paragraph_style(styles, "Formula", "Formula", align="left", first_line=0)
-        formula = style(styles, "Formula").find(qn(W, "pPr"))
-        tabs = child(formula, "tabs")
-        child(tabs, "tab", val="center", pos="4961")
-        child(tabs, "tab", val="right", pos="9922")
-        add_paragraph_style(styles, "FormulaExplanation", "Formula Explanation", align="left", first_line=0)
-        add_paragraph_style(styles, "TitleInstitution", "Title Institution", align="center", first_line=0, line=360)
-        add_paragraph_style(styles, "TitleApproval", "Title Approval", align="left", first_line=4961, line=360)
-        add_paragraph_style(styles, "TitleWorkType", "Title Work Type", bold=False, align="center", first_line=0, line=360)
-        add_paragraph_style(styles, "TitleDocumentTitle", "Title Document Title", bold=False, align="center", first_line=0, line=360)
-        add_paragraph_style(styles, "TitleDetails", "Title Details", align="left", first_line=4961, line=360)
-        add_paragraph_style(styles, "TitleDetailsCell", "Title Details Cell", align="left", first_line=0, line=360)
-        add_paragraph_style(styles, "TitlePlace", "Title Place", align="center", first_line=0, line=360)
-        add_paragraph_style(styles, "TitleSpacerTop", "Title Spacer Top", align="left", first_line=0, line=360, after=3000)
-        add_paragraph_style(styles, "TitleSpacerMiddle", "Title Spacer Middle", align="left", first_line=0, line=360, after=2000)
-        add_paragraph_style(styles, "TitleSpacerBottom", "Title Spacer Bottom", align="left", first_line=0, line=360, after=2900)
-        add_paragraph_style(styles, "TableSpacer", "Table Spacer", align="left", first_line=0, line=360)
-        add_paragraph_style(styles, "FigureSpacer", "Figure Spacer", align="left", first_line=0, line=360)
-        # Keep TOC entries readable and guarantee dotted leaders to the
-        # right-aligned page number in both Word and LibreOffice.
+        # DSTU custom paragraph styles
+        self._add_paragraph_style(
+            styles_root,
+            "TableCaption",
+            "Table Caption",
+            alignment="left",
+            first_line_indent=INDENT_FIRST_LINE_DXA,
+            keep_with_next=True,
+            spacing_after=0,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "ImageCaption",
+            "Image Caption",
+            alignment="center",
+            first_line_indent=0,
+            keep_with_next=False,
+            spacing_before=0,
+            spacing_after=0,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "CaptionedFigure",
+            "Captioned Figure",
+            alignment="center",
+            first_line_indent=0,
+            keep_with_next=True,
+        )
+        self._add_paragraph_style(
+            styles_root, "Figure", "Figure", alignment="center", first_line_indent=0
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "Bibliography",
+            "Bibliography",
+            first_line_indent=INDENT_FIRST_LINE_DXA,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "FootnoteText",
+            "Footnote Text",
+            size_half_points=FONT_SIZE_FOOTNOTE_HALF_POINTS,
+            line_spacing=LINE_SPACING_SINGLE,
+            first_line_indent=0,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "BlockText",
+            "Block Text",
+            first_line_indent=0,
+            alignment="left",
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TOCHeading",
+            "TOC Heading",
+            bold=True,
+            alignment="center",
+            first_line_indent=0,
+            page_break_before=True,
+            keep_with_next=True,
+            spacing_before=0,
+            spacing_after=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "AbstractHeading",
+            "Abstract Heading",
+            bold=True,
+            alignment="center",
+            first_line_indent=0,
+            page_break_before=True,
+            keep_with_next=True,
+            spacing_before=LINE_SPACING_1_5,
+            spacing_after=LINE_SPACING_1_5,
+        )
+
+        # Formula and explanation styles
+        self._add_paragraph_style(
+            styles_root, "Formula", "Formula", alignment="left", first_line_indent=0
+        )
+        formula_props = self._get_or_create_style(styles_root, "Formula").find(
+            w_tag("pPr")
+        )
+        if formula_props is not None:
+            formula_tabs = child_element(formula_props, "tabs")
+            child_element(
+                formula_tabs, "tab", val="center", pos=str(PAGE_CONTENT_CENTER_DXA)
+            )
+            child_element(
+                formula_tabs, "tab", val="right", pos=str(PAGE_CONTENT_WIDTH_DXA)
+            )
+
+        self._add_paragraph_style(
+            styles_root,
+            "FormulaExplanation",
+            "Formula Explanation",
+            alignment="left",
+            first_line_indent=0,
+        )
+
+        # Title-page styles
+        self._add_paragraph_style(
+            styles_root,
+            "TitleInstitution",
+            "Title Institution",
+            alignment="center",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleApproval",
+            "Title Approval",
+            alignment="left",
+            first_line_indent=PAGE_CONTENT_CENTER_DXA,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleWorkType",
+            "Title Work Type",
+            bold=False,
+            alignment="center",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleDocumentTitle",
+            "Title Document Title",
+            bold=False,
+            alignment="center",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleDetails",
+            "Title Details",
+            alignment="left",
+            first_line_indent=PAGE_CONTENT_CENTER_DXA,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleDetailsCell",
+            "Title Details Cell",
+            alignment="left",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitlePlace",
+            "Title Place",
+            alignment="center",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleSpacerTop",
+            "Title Spacer Top",
+            alignment="left",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+            spacing_after=TITLE_SPACER_TOP_DXA,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleSpacerMiddle",
+            "Title Spacer Middle",
+            alignment="left",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+            spacing_after=TITLE_SPACER_MIDDLE_DXA,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TitleSpacerBottom",
+            "Title Spacer Bottom",
+            alignment="left",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+            spacing_after=TITLE_SPACER_BOTTOM_DXA,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "TableSpacer",
+            "Table Spacer",
+            alignment="left",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "FigureSpacer",
+            "Figure Spacer",
+            alignment="left",
+            first_line_indent=0,
+            line_spacing=LINE_SPACING_1_5,
+        )
+
+        # TOC1..3 styles with dot leaders
         for level in range(1, 4):
-            toc = styles.find(f".//{qn(W, 'style')}[@{qn(W, 'styleId')}='TOC{level}']")
-            if toc is None:
-                toc = ET.SubElement(styles, qn(W, "style"), {qn(W, "type"): "paragraph", qn(W, "styleId"): f"TOC{level}"})
-                child(toc, "name", val=f"TOC {level}")
-                child(toc, "basedOn", val="Normal")
-            props = replace_properties(toc, "pPr")
-            tabs = child(props, "tabs")
-            child(tabs, "tab", val="right", pos="9922", leader="dot")
-            child(props, "spacing", before="0", after="0", line="360", lineRule="auto")
-            child(props, "ind", left=str((level - 1) * 709), firstLine="0")
-            run_properties(toc, size=28)
-        write_xml(styles_tree, styles_path)
+            style_id = f"TOC{level}"
+            toc_elem = styles_root.find(
+                f".//{w_tag('style')}[@{w_tag('styleId')}='{style_id}']"
+            )
+            if toc_elem is None:
+                toc_elem = ET.SubElement(
+                    styles_root,
+                    w_tag("style"),
+                    {w_tag("type"): "paragraph", w_tag("styleId"): style_id},
+                )
+                child_element(toc_elem, "name", val=f"TOC {level}")
+                child_element(toc_elem, "basedOn", val="Normal")
 
-        document_path = unpacked / "word" / "document.xml"
-        document_tree = ET.parse(document_path)
-        body = document_tree.getroot().find(qn(W, "body"))
-        section = body.find(qn(W, "sectPr"))
-        if section is None:
-            section = ET.SubElement(body, qn(W, "sectPr"))
-        for tag in ("pgSz", "pgMar", "titlePg"):
-            old = section.find(qn(W, tag))
+            apply_paragraph_properties(
+                toc_elem,
+                spacing_before=0,
+                spacing_after=0,
+                line_spacing=LINE_SPACING_1_5,
+                first_line_indent=0,
+                left_indent=(level - 1) * INDENT_FIRST_LINE_DXA,
+            )
+            toc_props = toc_elem.find(w_tag("pPr"))
+            if toc_props is not None:
+                tabs = child_element(toc_props, "tabs")
+                child_element(
+                    tabs,
+                    "tab",
+                    val="right",
+                    pos=str(PAGE_CONTENT_WIDTH_DXA),
+                    leader="dot",
+                )
+            apply_run_properties(toc_elem, size_half_points=FONT_SIZE_BODY_HALF_POINTS)
+
+    def _configure_page_geometry(self, body: ET.Element) -> None:
+        """Set A4 page dimensions, margins, and header references in sectPr."""
+        section_props = body.find(w_tag("sectPr"))
+        if section_props is None:
+            section_props = ET.SubElement(body, w_tag("sectPr"))
+
+        for tag_name in ("pgSz", "pgMar", "titlePg"):
+            old = section_props.find(w_tag(tag_name))
             if old is not None:
-                section.remove(old)
-        child(section, "pgSz", w="11906", h="16838")
-        child(section, "pgMar", top="1134", right="567", bottom="1134", left="1417", header="567", footer="567", gutter="0")
-        child(section, "headerReference", type="default").set(qn(R, "id"), "rId100")
-        child(section, "titlePg")
-        write_xml(document_tree, document_path)
+                section_props.remove(old)
 
-        header = ET.Element(qn(W, "hdr"))
-        para = child(header, "p")
-        props = child(para, "pPr")
-        child(props, "jc", val="right")
-        child(props, "ind", firstLine="0")
-        run = child(para, "r")
-        child(run, "fldChar", fldCharType="begin")
-        run = child(para, "r")
-        instruction = child(run, "instrText")
-        instruction.text = " PAGE "
-        run = child(para, "r")
-        child(run, "fldChar", fldCharType="end")
-        for header_run in para.findall(qn(W, "r")):
-            rp = ET.Element(qn(W, "rPr"))
-            child(rp, "rFonts", ascii="Times New Roman", hAnsi="Times New Roman")
-            child(rp, "sz", val="20")
-            child(rp, "szCs", val="20")
-            header_run.insert(0, rp)
-        ET.ElementTree(header).write(unpacked / "word" / "header1.xml", encoding="UTF-8", xml_declaration=True)
+        child_element(
+            section_props,
+            "pgSz",
+            w=str(PAGE_A4_WIDTH_DXA),
+            h=str(PAGE_A4_HEIGHT_DXA),
+        )
+        child_element(
+            section_props,
+            "pgMar",
+            top=str(MARGIN_TOP_DXA),
+            right=str(MARGIN_RIGHT_DXA),
+            bottom=str(MARGIN_BOTTOM_DXA),
+            left=str(MARGIN_LEFT_DXA),
+            header=str(MARGIN_HEADER_DXA),
+            footer=str(MARGIN_FOOTER_DXA),
+            gutter="0",
+        )
+        header_ref = child_element(section_props, "headerReference", type="default")
+        header_ref.set(openxml_tag("id", R_NAMESPACE), "rId100")
+        child_element(section_props, "titlePg")
 
-        rels_path = unpacked / "word" / "_rels" / "document.xml.rels"
+    def _create_header_part(self, unpacked_dir: Path) -> None:
+        """Create word/header1.xml and link it in document.xml.rels and [Content_Types].xml."""
+        header_elem = ET.Element(w_tag("hdr"))
+        paragraph = child_element(header_elem, "p")
+        props = child_element(paragraph, "pPr")
+        child_element(props, "jc", val="right")
+        child_element(props, "ind", firstLine="0")
+
+        # Field: PAGE
+        run_begin = child_element(paragraph, "r")
+        child_element(run_begin, "fldChar", fldCharType="begin")
+
+        run_instr = child_element(paragraph, "r")
+        instr_text = child_element(run_instr, "instrText")
+        instr_text.text = " PAGE "
+
+        run_end = child_element(paragraph, "r")
+        child_element(run_end, "fldChar", fldCharType="end")
+
+        for run in paragraph.findall(w_tag("r")):
+            apply_run_properties(
+                run,
+                font_family=FONT_NAME_TIMES,
+                size_half_points=FONT_SIZE_PAGE_NUMBER_HALF_POINTS,
+            )
+
+        header_path = unpacked_dir / "word" / "header1.xml"
+        ET.ElementTree(header_elem).write(
+            header_path, encoding="UTF-8", xml_declaration=True
+        )
+
+        # Register in document.xml.rels
+        rels_path = unpacked_dir / "word" / "_rels" / "document.xml.rels"
         rels_tree = ET.parse(rels_path)
         ET.SubElement(
             rels_tree.getroot(),
-            qn(PKG_REL, "Relationship"),
+            openxml_tag("Relationship", PKG_REL_NAMESPACE),
             {
                 "Id": "rId100",
-                "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header",
+                "Type": f"{R_NAMESPACE}/header",
                 "Target": "header1.xml",
             },
         )
-        write_xml(rels_tree, rels_path)
+        rels_tree.write(rels_path, encoding="UTF-8", xml_declaration=True)
 
-        content_path = unpacked / "[Content_Types].xml"
+        # Register in [Content_Types].xml
+        content_path = unpacked_dir / "[Content_Types].xml"
         content_tree = ET.parse(content_path)
         ET.SubElement(
             content_tree.getroot(),
-            qn(CONTENT, "Override"),
+            openxml_tag("Override", CONTENT_TYPES_NAMESPACE),
             {
                 "PartName": "/word/header1.xml",
                 "ContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml",
             },
         )
-        write_xml(content_tree, content_path)
+        content_tree.write(content_path, encoding="UTF-8", xml_declaration=True)
 
-        settings_path = unpacked / "word" / "settings.xml"
-        settings_tree = ET.parse(settings_path)
-        settings_root = settings_tree.getroot()
-        compat = settings_root.find(qn(W, "compat"))
+    def _configure_settings(self, settings_root: ET.Element) -> None:
+        """Set Word compatibility options and disable field updates on open."""
+        compat = settings_root.find(w_tag("compat"))
         if compat is None:
-            compat = ET.SubElement(settings_root, qn(W, "compat"))
-        child(compat, "doNotUseHTMLParagraphAutoSpacing")
-        # Updating an empty Pandoc TOC on open can erase it in some editors;
-        # users explicitly refresh fields after opening, as documented.
-        child(settings_root, "updateFields", val="false")
-        write_xml(settings_tree, settings_path)
+            compat = ET.SubElement(settings_root, w_tag("compat"))
+        child_element(compat, "doNotUseHTMLParagraphAutoSpacing")
+        child_element(settings_root, "updateFields", val="false")
 
-        rebuilt = work / "reference.docx"
-        with zipfile.ZipFile(rebuilt, "w", zipfile.ZIP_DEFLATED) as archive:
-            for item in sorted(unpacked.rglob("*")):
-                if item.is_file():
-                    archive.write(item, item.relative_to(unpacked).as_posix())
-        shutil.copy2(rebuilt, OUTPUT)
-        print(f"Created {OUTPUT}")
+    def _get_or_create_style(self, root: ET.Element, style_id: str) -> ET.Element:
+        elem = root.find(f".//{w_tag('style')}[@{w_tag('styleId')}='{style_id}']")
+        if elem is None:
+            elem = ET.SubElement(
+                root,
+                w_tag("style"),
+                {w_tag("type"): "paragraph", w_tag("styleId"): style_id},
+            )
+        return elem
+
+    def _add_paragraph_style(
+        self,
+        root: ET.Element,
+        style_id: str,
+        name: str,
+        *,
+        based_on: str = "Normal",
+        next_style: str = "BodyText",
+        size_half_points: int = FONT_SIZE_BODY_HALF_POINTS,
+        bold: bool = False,
+        italic: bool = False,
+        alignment: str = "both",
+        spacing_before: int = 0,
+        spacing_after: int = 0,
+        line_spacing: int = LINE_SPACING_1_5,
+        first_line_indent: int | None = INDENT_FIRST_LINE_DXA,
+        keep_with_next: bool = False,
+        page_break_before: bool = False,
+    ) -> ET.Element:
+        existing = root.find(f".//{w_tag('style')}[@{w_tag('styleId')}='{style_id}']")
+        if existing is not None:
+            root.remove(existing)
+
+        node = ET.SubElement(
+            root,
+            w_tag("style"),
+            {
+                w_tag("type"): "paragraph",
+                w_tag("styleId"): style_id,
+                w_tag("customStyle"): "1",
+            },
+        )
+        child_element(node, "name", val=name)
+        child_element(node, "basedOn", val=based_on)
+        child_element(node, "next", val=next_style)
+        child_element(node, "qFormat")
+
+        apply_paragraph_properties(
+            node,
+            alignment=alignment,
+            spacing_before=spacing_before,
+            spacing_after=spacing_after,
+            line_spacing=line_spacing,
+            first_line_indent=first_line_indent,
+            keep_with_next=keep_with_next,
+            page_break_before=page_break_before,
+        )
+        apply_run_properties(
+            node,
+            font_family=FONT_NAME_TIMES,
+            size_half_points=size_half_points,
+            bold=bold,
+            italic=italic,
+        )
+        return node
+
+
+def main() -> None:
+    builder = DstuReferenceBuilder()
+    output_file = builder.build()
+    print(f"Created: {output_file}")
 
 
 if __name__ == "__main__":
-    build()
+    main()
