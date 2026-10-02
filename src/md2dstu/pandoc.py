@@ -167,6 +167,7 @@ class PandocBridge:
             "--lua-filter",
             str(self.filter_path),
             "--citeproc",
+            "--no-highlight",
             "--csl",
             str(self.csl_path),
             "--metadata",

@@ -88,6 +88,8 @@ FONT_NAME_TIMES = "Times New Roman"
 FONT_SIZE_BODY_HALF_POINTS = points_to_half_points(14)  # 28 (14 pt)
 FONT_SIZE_FOOTNOTE_HALF_POINTS = points_to_half_points(12)  # 24 (12 pt)
 FONT_SIZE_PAGE_NUMBER_HALF_POINTS = points_to_half_points(10)  # 20 (10 pt)
+FONT_NAME_CODE = "Courier New"
+FONT_SIZE_CODE_HALF_POINTS = points_to_half_points(11)  # 22 (11 pt)
 
 # Line spacing in Word (240 units = 1.0 single spacing; 360 units = 1.5 line spacing)
 LINE_SPACING_1_5 = 360
