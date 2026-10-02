@@ -37,13 +37,14 @@ From this directory:
 ./md2dstu examples/report.md -o examples/report.docx --check
 ```
 
-For use from any directory, either call the absolute path or link it into a
-directory on `PATH`:
+For use from any directory, run the installer. It checks dependencies, links
+the launcher into `~/.local/bin` (override with `BIN_DIR=...`), and adds that
+directory to `PATH` in `~/.bashrc`/`~/.zshrc` if it is missing:
 
 ```sh
-mkdir -p ~/.local/bin
-ln -s "$PWD/md2dstu" ~/.local/bin/md2dstu
+./install.sh
 md2dstu path/to/report.md -o path/to/report.docx --check
+./install.sh --uninstall   # remove the link
 ```
 
 Keep the project directory intact: the executable finds `filters/`,
