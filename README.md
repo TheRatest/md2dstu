@@ -44,8 +44,26 @@ directory to `PATH` in `~/.bashrc`/`~/.zshrc` if it is missing:
 ```sh
 ./install.sh
 md2dstu path/to/report.md -o path/to/report.docx --check
-./install.sh --uninstall   # remove the link
+./install.sh --uninstall   # remove the links
 ```
+
+### AI agent skill
+
+[`skills/md2dstu/SKILL.md`](skills/md2dstu/SKILL.md) teaches an AI coding
+agent to write the report as Markdown and build it with `md2dstu --check`
+instead of generating DOCX itself. `install.sh` links the skill folder for
+every agent whose config directory exists:
+
+| Agent | Skill directory |
+|-------|-----------------|
+| Claude Code | `~/.claude/skills/` |
+| Codex | `~/.agents/skills/` |
+| Cursor | `~/.cursor/skills/` |
+| Gemini CLI, Antigravity CLI | `~/.gemini/skills/` |
+| Antigravity (all editions) | `~/.gemini/config/skills/` |
+
+The links point into this checkout, so `git pull` updates the skill too. For
+another agent, link or copy `skills/md2dstu` into its skills directory.
 
 Keep the project directory intact: the executable finds `filters/`,
 `resources/`, and `templates/` relative to itself.

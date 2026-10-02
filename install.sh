@@ -2,7 +2,10 @@
 # Install md2dstu as a command by linking the launcher into a bin directory.
 #
 #   ./install.sh               link into ~/.local/bin (or $BIN_DIR)
-#   ./install.sh --uninstall   remove the link
+#   ./install.sh --uninstall   remove the links
+#
+# Also links skills/md2dstu into the skill directory of every AI agent whose
+# config directory exists: Claude Code, Codex, Cursor, Gemini CLI, Antigravity.
 #
 # The checkout must stay in place: the launcher finds filters/, templates/
 # and resources/ next to its real path, so `git pull` updates the command.
@@ -12,6 +15,19 @@ set -eu
 REPO_DIR=$(cd "$(dirname "$0")" && pwd -P)
 BIN_DIR=${BIN_DIR:-"$HOME/.local/bin"}
 TARGET="$BIN_DIR/md2dstu"
+SKILL_SRC="$REPO_DIR/skills/md2dstu"
+
+# Lines of "<agent config dir> <skill dir>"; a skill is linked only when the
+# agent's config dir exists.
+skill_dirs() {
+    cat <<EOF
+$HOME/.claude $HOME/.claude/skills
+${CODEX_HOME:-$HOME/.codex} $HOME/.agents/skills
+$HOME/.cursor $HOME/.cursor/skills
+$HOME/.gemini $HOME/.gemini/skills
+$HOME/.gemini $HOME/.gemini/config/skills
+EOF
+}
 
 if [ "${1:-}" = "--uninstall" ]; then
     if [ -L "$TARGET" ]; then
@@ -20,6 +36,12 @@ if [ "${1:-}" = "--uninstall" ]; then
     else
         echo "Nothing to remove: $TARGET is not a symlink"
     fi
+    skill_dirs | while read -r _ dir; do
+        if [ "$(readlink "$dir/md2dstu" 2>/dev/null)" = "$SKILL_SRC" ]; then
+            rm "$dir/md2dstu"
+            echo "Removed skill $dir/md2dstu"
+        fi
+    done
     exit 0
 fi
 
@@ -64,5 +86,17 @@ case ":$PATH:" in
     echo "Open a new terminal or run: . $rc"
     ;;
 esac
+
+# AI agent skill
+skill_dirs | while read -r home dir; do
+    [ -d "$home" ] || continue
+    if [ -e "$dir/md2dstu" ] && [ ! -L "$dir/md2dstu" ]; then
+        echo "warning: $dir/md2dstu exists and is not a symlink; skill not linked" >&2
+        continue
+    fi
+    mkdir -p "$dir"
+    ln -sfn "$SKILL_SRC" "$dir/md2dstu"
+    echo "Linked skill $dir/md2dstu"
+done
 
 "$TARGET" --help >/dev/null && echo "Done: md2dstu is installed"
