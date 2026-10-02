@@ -5,7 +5,8 @@
 #   ./install.sh --uninstall   remove the links
 #
 # Also links skills/md2dstu into the skill directory of every AI agent whose
-# config directory exists: Claude Code, Codex, Cursor, Gemini CLI, Antigravity.
+# config directory exists: Claude Code, Codex, Cursor, Gemini CLI, Antigravity,
+# opencode.
 #
 # The checkout must stay in place: the launcher finds filters/, templates/
 # and resources/ next to its real path, so `git pull` updates the command.
@@ -26,6 +27,7 @@ ${CODEX_HOME:-$HOME/.codex} $HOME/.agents/skills
 $HOME/.cursor $HOME/.cursor/skills
 $HOME/.gemini $HOME/.gemini/skills
 $HOME/.gemini $HOME/.gemini/config/skills
+${XDG_CONFIG_HOME:-$HOME/.config}/opencode ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/skills
 EOF
 }
 

@@ -61,6 +61,7 @@ every agent whose config directory exists:
 | Cursor | `~/.cursor/skills/` |
 | Gemini CLI, Antigravity CLI | `~/.gemini/skills/` |
 | Antigravity (all editions) | `~/.gemini/config/skills/` |
+| opencode | `~/.config/opencode/skills/` |
 
 The links point into this checkout, so `git pull` updates the skill too. For
 another agent, link or copy `skills/md2dstu` into its skills directory.
