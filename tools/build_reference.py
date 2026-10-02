@@ -20,8 +20,10 @@ if str(SRC_DIR) not in sys.path:
 from md2dstu.constants import (
     CONTENT_TYPES_NAMESPACE,
     DEFAULT_REFERENCE_DOCX_PATH,
+    FONT_NAME_CODE,
     FONT_NAME_TIMES,
     FONT_SIZE_BODY_HALF_POINTS,
+    FONT_SIZE_CODE_HALF_POINTS,
     FONT_SIZE_FOOTNOTE_HALF_POINTS,
     FONT_SIZE_PAGE_NUMBER_HALF_POINTS,
     INDENT_FIRST_LINE_DXA,
@@ -214,6 +216,17 @@ class DstuReferenceBuilder:
         )
         self._add_paragraph_style(
             styles_root, "Figure", "Figure", alignment="center", first_line_indent=0
+        )
+        self._add_paragraph_style(
+            styles_root,
+            "SourceCode",
+            "Source Code",
+            font_family=FONT_NAME_CODE,
+            size_half_points=FONT_SIZE_CODE_HALF_POINTS,
+            bold=True,
+            alignment="left",
+            line_spacing=LINE_SPACING_SINGLE,
+            first_line_indent=0,
         )
         self._add_paragraph_style(
             styles_root,
@@ -540,6 +553,7 @@ class DstuReferenceBuilder:
         *,
         based_on: str = "Normal",
         next_style: str = "BodyText",
+        font_family: str = FONT_NAME_TIMES,
         size_half_points: int = FONT_SIZE_BODY_HALF_POINTS,
         bold: bool = False,
         italic: bool = False,
@@ -581,7 +595,7 @@ class DstuReferenceBuilder:
         )
         apply_run_properties(
             node,
-            font_family=FONT_NAME_TIMES,
+            font_family=font_family,
             size_half_points=size_half_points,
             bold=bold,
             italic=italic,

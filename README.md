@@ -242,6 +242,22 @@ the prose references. The DOCX stores formulas as editable Office Math where
 Pandoc supports the TeX expression. Start the explanation with `де`, without a
 colon.
 
+### Code listings
+
+Fenced code blocks use the `Source Code` style: Courier New 11 pt, bold,
+single line spacing, left aligned, no first-line indent. Syntax highlighting
+is disabled so code stays black.
+
+````markdown
+```python
+def f(x):
+    return x + 1
+```
+````
+
+Captions/numbering for listings are not generated yet; write the introducing
+sentence in the prose.
+
 ### Citations
 
 Use Pandoc citation syntax and a bibliography:

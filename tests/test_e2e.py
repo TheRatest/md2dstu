@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tempfile
 import unittest
 import zipfile
@@ -78,6 +79,36 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             self.assertIn(
                 "DSTU conversion validation: PASS WITH WARNINGS", validation_text
             )
+
+    def test_code_block_uses_courier_new_11_bold_single(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-code-") as temp_dir:
+            source = Path(temp_dir) / "code.md"
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n'
+                "```python\ndef f(x):\n    return x + 1\n```\n\n"
+                "# ВИСНОВКИ {-}\n\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "code.docx"
+
+            self.assertEqual(
+                main([str(source), "-o", str(output_docx), "--no-update-toc"]), 0
+            )
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                styles = docx_zip.read("word/styles.xml").decode("utf-8")
+                document = docx_zip.read("word/document.xml").decode("utf-8")
+
+            style = re.search(
+                r'<w:style [^>]*w:styleId="SourceCode".*?</w:style>', styles
+            )
+            self.assertIsNotNone(style)
+            self.assertIn('w:ascii="Courier New"', style.group(0))
+            self.assertIn('<w:sz w:val="22"', style.group(0))
+            self.assertIn("<w:b ", style.group(0))
+            self.assertIn('w:line="240"', style.group(0))
+            self.assertIn('<w:pStyle w:val="SourceCode"', document)
+            self.assertNotIn("KeywordTok", document)
 
 
 if __name__ == "__main__":
