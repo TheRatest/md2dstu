@@ -39,7 +39,7 @@ Options: `md2dstu --help`. Full syntax reference with every feature: `examples/r
    `# РЕФЕРАТ {-}`, `# ВСТУП {-}`, `# НАЗВА РОЗДІЛУ`, `# ВИСНОВКИ {-}`, `# ПЕРЕЛІК ДЖЕРЕЛ ПОСИЛАННЯ {-}`, `# ДОДАТОК А {.appendix}`.
    `ВИСНОВКИ` is required; РЕФЕРАТ/ВСТУП optional. Headings carry no manual numbers and no trailing period — the tool numbers them.
 3. **Body elements** — exact syntax:
-   - Figure: image alone in its paragraph → `![Підпис](img.png){width=14cm}` (≤17 cm). Caption without "Рисунок N —".
+   - Figure: image alone in its paragraph → `![Підпис](img.png){width=14cm}` (≤17 cm). Caption without "Рисунок N –".
    - Table: caption line **above** the table → `: Підпис`, blank line, then pipe table.
    - Plain formula: `$$...$$`. Numbered (only if referenced in text):
      ```
@@ -48,14 +48,15 @@ Options: `md2dstu --help`. Full syntax reference with every feature: `examples/r
      :::
 
      ::: formula-explanation
-     де $E$ — енергія;  
-     $m$ — маса.
+     де $E$ – енергія;  
+     $m$ – маса.
      :::
      ```
    - Lists: write plain `1.` / `-` at every nesting level; the tool converts level 2 to `а)`, level 3 to `i.`.
    - Citations: `[@id]` + entries in `references.yaml`; reference list is `::: {#refs}` + `:::` under the bibliography heading.
    - Refer to every figure/table in prose ("на рисунку 1.1", "у таблиці 1.1") before it appears — the tool does not create cross-references. Prose numbers are typed by hand, so match the mode: `section` → `1.1` (resets per chapter), `continuous`/`none` → `1`, `2`, …
    - Code: fenced block with language (```` ```python ````) → Courier New 11 bold, single spacing. No auto caption yet: introduce the listing in prose.
+   - Dash in Ukrainian text: en dash `–` with spaces (as in generated captions «Рисунок 1.1 – …»); keep `-` for hyphenated words and `–` without spaces for ranges (`1–5`).
    - Footnotes: `текст[^1]` + `[^1]: примітка.`
    - Level-2+ headings in sentence case (`## Опис результатів`).
    - Bibliography file format: copy `examples/references.yaml` (CSL YAML). Fill only verified fields.
