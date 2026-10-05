@@ -108,6 +108,11 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             self.assertIn("<w:b ", style.group(0))
             self.assertIn('w:line="240"', style.group(0))
             self.assertIn('<w:pStyle w:val="SourceCode"', document)
+            spacer = (
+                '<w:p><w:pPr><w:pStyle w:val="SourceCode" /></w:pPr>'
+                '<w:r><w:t xml:space="preserve"> </w:t></w:r></w:p>'
+            )
+            self.assertEqual(document.count(spacer), 2)
             self.assertNotIn("KeywordTok", document)
 
 
