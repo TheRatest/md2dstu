@@ -221,3 +221,5 @@ __marimo__/
 .~lock.*
 examples/*.docx
 examples/*.docx.validation.txt
+/*.docx
+/*.validation.txt
