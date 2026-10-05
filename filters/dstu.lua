@@ -215,6 +215,11 @@ function Table(el)
   return {el, styled_para({pandoc.Str(" ")}, "Table Spacer")}
 end
 
+function CodeBlock(el)
+  -- Blank code-styled lines above and below separate code from body text.
+  return {styled_para(" ", "Source Code"), el, styled_para(" ", "Source Code")}
+end
+
 function Div(el)
   if el.classes:includes("formula") then
     local number = el.attributes.number
@@ -302,5 +307,5 @@ end
 -- blocks before calling Meta in a single Lua-filter pass.
 return {
   {Meta = Meta},
-  {Header = Header, Figure = Figure, Table = Table, Div = Div, Pandoc = Pandoc},
+  {Header = Header, Figure = Figure, Table = Table, CodeBlock = CodeBlock, Div = Div, Pandoc = Pandoc},
 }
