@@ -242,6 +242,13 @@ function Div(el)
 end
 
 function Pandoc(doc)
+  -- A heading already has its own space before; a spacer there doubles the gap.
+  for i = #doc.blocks - 1, 1, -1 do
+    local style = doc.blocks[i].t == "Div" and doc.blocks[i].attributes["custom-style"]
+    if (style == "Figure Spacer" or style == "Table Spacer") and doc.blocks[i + 1].t == "Header" then
+      doc.blocks:remove(i)
+    end
+  end
   -- Keywords are author-supplied metadata, never inferred from abstract text.
   if doc.meta.keywords then
     local words = {}
