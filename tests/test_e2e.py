@@ -115,6 +115,27 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             self.assertEqual(document.count(spacer), 2)
             self.assertNotIn("KeywordTok", document)
 
+    def test_no_spacer_between_figure_and_next_heading(self) -> None:
+        image = PROJECT_ROOT / "examples" / "bombyx-mori.png"
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-fig-") as temp_dir:
+            source = Path(temp_dir) / "fig.md"
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n'
+                f"![Перший]({image})\n\nТекст.\n\n"
+                f"![Другий]({image})\n\n## Підрозділ\n\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "fig.docx"
+
+            self.assertEqual(
+                main([str(source), "-o", str(output_docx), "--no-update-toc"]), 0
+            )
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                document = docx_zip.read("word/document.xml").decode("utf-8")
+
+            self.assertEqual(document.count('w:val="FigureSpacer"'), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
