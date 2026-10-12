@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from xml.etree import ElementTree as ET
 
-from md2dstu.constants import BORDER_SIZE_ONE_POINT
+from md2dstu.constants import BORDER_SIZE_ONE_POINT, PAGE_CONTENT_WIDTH_DXA
 from md2dstu.docx.namespaces import w_tag
 
 
@@ -114,3 +114,29 @@ class TableModifier:
 
         if row_props.find(w_tag("tblHeader")) is None:
             ET.SubElement(row_props, w_tag("tblHeader"), {w_tag("val"): "true"})
+
+    @staticmethod
+    def stretch_to_page_width(table: ET.Element) -> None:
+        """Scale column widths proportionally so the table spans the full text width."""
+        columns = table.findall(f"./{w_tag('tblGrid')}/{w_tag('gridCol')}")
+        total = sum(int(col.get(w_tag("w"), "0")) for col in columns)
+        if total <= 0:
+            return
+        factor = PAGE_CONTENT_WIDTH_DXA / total
+
+        for col in columns:
+            col.set(w_tag("w"), str(round(int(col.get(w_tag("w"))) * factor)))
+        for cell_width in table.iter(w_tag("tcW")):
+            if cell_width.get(w_tag("type")) == "dxa":
+                width = int(cell_width.get(w_tag("w"), "0"))
+                cell_width.set(w_tag("w"), str(round(width * factor)))
+
+        properties = table.find(w_tag("tblPr"))
+        if properties is None:
+            properties = ET.Element(w_tag("tblPr"))
+            table.insert(0, properties)
+        table_width = properties.find(w_tag("tblW"))
+        if table_width is None:
+            table_width = ET.SubElement(properties, w_tag("tblW"))
+        table_width.set(w_tag("type"), "dxa")
+        table_width.set(w_tag("w"), str(PAGE_CONTENT_WIDTH_DXA))
