@@ -71,6 +71,7 @@ class DocxPostProcessor:
                         TableModifier.set_invisible_table_borders(table)
                     else:
                         TableModifier.set_table_borders(table)
+                        TableModifier.stretch_to_page_width(table)
                     TableModifier.ensure_repeating_table_header(table)
 
                 doc_tree.write(document_path, encoding="UTF-8", xml_declaration=True)

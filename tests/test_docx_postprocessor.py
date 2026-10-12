@@ -42,6 +42,24 @@ class DocxModifiersTestCase(unittest.TestCase):
         regular_table = ET.fromstring(regular_table_xml)
         self.assertFalse(TableModifier.is_title_details_table(regular_table))
 
+    def test_stretch_to_page_width(self) -> None:
+        table = ET.fromstring(
+            '<w:tbl xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:tblPr><w:tblW w:type="auto" w:w="0"/></w:tblPr>'
+            '<w:tblGrid><w:gridCol w:w="2640"/><w:gridCol w:w="5280"/></w:tblGrid>'
+            '<w:tr><w:tc><w:tcPr><w:tcW w:type="dxa" w:w="2640"/></w:tcPr></w:tc></w:tr>'
+            "</w:tbl>"
+        )
+        TableModifier.stretch_to_page_width(table)
+
+        widths = [int(c.get(w_tag("w"))) for c in table.iter(w_tag("gridCol"))]
+        self.assertAlmostEqual(sum(widths), 9922, delta=1)
+        self.assertAlmostEqual(widths[1], 2 * widths[0], delta=1)
+        self.assertEqual(table.find(f".//{w_tag('tcW')}").get(w_tag("w")), str(widths[0]))
+        table_width = table.find(f".//{w_tag('tblW')}")
+        self.assertEqual(table_width.get(w_tag("type")), "dxa")
+        self.assertEqual(table_width.get(w_tag("w")), "9922")
+
     def test_collapse_adjacent_heading_spacing(self) -> None:
         doc_xml = (
             '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
