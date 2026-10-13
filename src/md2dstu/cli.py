@@ -74,9 +74,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Exit with status code 2 if DSTU structural validation reports any errors",
     )
     parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print the detailed validation report to stdout",
+    )
+    parser.add_argument(
         "--report",
         type=Path,
-        help="Custom path for the validation report file (default: <output>.validation.txt)",
+        help="Write the validation report to this file (no report file is created by default)",
     )
     parser.add_argument(
         "--keep-docx",
@@ -109,6 +115,7 @@ def parse_arguments_to_config(argv: list[str] | None = None) -> ConversionConfig
         numbering_mode=numbering_mode,
         include_toc=args.toc,
         bold_heading2=args.bold_heading2,
+        verbose=args.verbose,
         update_toc=not args.no_update_toc,
         check_structural_errors=args.check,
         report_path=args.report.resolve() if args.report else None,
@@ -124,13 +131,8 @@ def main(argv: list[str] | None = None) -> int:
         result = converter.convert()
 
         report = result.validation_report
-        print(f"Created: {result.output_path}")
-        print(f"Validation: {result.report_path}")
-        print(f"Status: {report.status.value}")
-
-        if report.errors:
-            for error_message in report.errors:
-                print(f"  error: {error_message}", file=sys.stderr)
+        if config.verbose:
+            sys.stdout.write(report.render_text())
 
         if config.check_structural_errors and not report.is_success:
             return 2

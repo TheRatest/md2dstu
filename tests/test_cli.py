@@ -17,8 +17,10 @@ class CliTestCase(unittest.TestCase):
         self.assertEqual(config.output_format, OutputFormat.DOCX)
         self.assertEqual(config.numbering_mode, NumberingMode.SECTION)
         self.assertFalse(config.bold_heading2)
+        self.assertFalse(config.verbose)
         self.assertTrue(config.update_toc)
         self.assertFalse(config.check_structural_errors)
+        self.assertIsNone(config.report_path)
 
     def test_custom_cli_arguments(self) -> None:
         config = parse_arguments_to_config(
@@ -29,6 +31,9 @@ class CliTestCase(unittest.TestCase):
                 "--numbering",
                 "continuous",
                 "--bold-heading2",
+                "--verbose",
+                "--report",
+                "validation.txt",
                 "--no-update-toc",
                 "--check",
                 "--keep-docx",
@@ -38,6 +43,8 @@ class CliTestCase(unittest.TestCase):
         self.assertEqual(config.output_format, OutputFormat.ODT)
         self.assertEqual(config.numbering_mode, NumberingMode.CONTINUOUS)
         self.assertTrue(config.bold_heading2)
+        self.assertTrue(config.verbose)
+        self.assertEqual(config.report_path, Path("validation.txt").resolve())
         self.assertFalse(config.update_toc)
         self.assertTrue(config.check_structural_errors)
         self.assertTrue(config.keep_intermediate_docx)

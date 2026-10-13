@@ -3,7 +3,8 @@
 `md2dstu` converts UTF-8 Markdown or Org files to an editable DOCX using a
 project-owned reference document derived from the requirements in
 [`DSTU.md`](DSTU.md). It can optionally use LibreOffice to produce ODT or
-legacy DOC. Every conversion also creates a human-readable validation report.
+legacy DOC. Conversion is silent by default; use `--verbose` to print the
+human-readable validation report or `--report PATH` to save it to a file.
 
 The tool is a practical formatting aid, **not** a certificate of complete
 DSTU 3008:2015 compliance. Always apply your institution's current title-page
@@ -89,18 +90,20 @@ Common commands:
 # Disable heading numbers; figures and tables keep continuous numbers
 ./md2dstu report.md --numbering none -o report.docx
 
-# Make second-level headings bold
-./md2dstu report.md --bold-heading2 -o report.docx
+# Make second-level headings bold and print validation details
+./md2dstu report.md --bold-heading2 --verbose -o report.docx
 
 # Use an institution's DOCX as the formatting reference
 ./md2dstu report.md --reference-doc institution-reference.docx -o report.docx
 ```
 
 Run `./md2dstu --help` for all options. The default output is the source name
-with `.docx`. The validation report is written beside it as
-`OUTPUT.validation.txt`. `--check` still creates the document, but exits with
-status 2 if required structure/title information fails validation; without it,
-content problems are reported without failing conversion.
+with `.docx`. Successful conversions produce no console output and no
+validation-report file by default. `--verbose` prints the detailed validation
+report to stdout; `--report PATH` explicitly saves it to a file. `--check`
+still creates the document, but exits with status 2 if required
+structure/title information fails validation; without it, content problems are
+reported in the validation report without failing conversion.
 
 `--bold-heading2` changes only Heading 2 in the generated DOCX; without the
 flag, second-level headings remain regular weight. If an external
@@ -370,8 +373,9 @@ Open the output in the editor that will produce the final PDF/print and check:
   local standard;
 - separate attachments are present in the delivery package.
 
-The companion `.validation.txt` distinguishes errors/warnings from checks that
-cannot be established automatically.
+The validation report distinguishes errors/warnings from checks that cannot
+be established automatically. Print it with `--verbose`, or save it with
+`--report OUTPUT.validation.txt`.
 
 ## Rebuilding the reference DOCX
 

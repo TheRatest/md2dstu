@@ -11,7 +11,7 @@ This specification covers the rules summarized in `DSTU.md`; it does not claim c
 - **Users:** authors of Ukrainian scientific and technical reports.
 - **Interface:** command line; no network access required for normal conversion.
 - **Input:** one `.md` file, plus its local images and optional metadata/configuration.
-- **Output:** `.docx` or `.odt`, plus a validation report.
+- **Output:** `.docx` or `.odt`, with a validation report available on request.
 - The source is never modified. Missing facts (for example, author or approval details) are never invented.
 
 Example invocation:
@@ -36,7 +36,7 @@ md2dstu report.md --output report.odt --check
 | FR-9 | Center display formulas on separate lines, place their parenthesized numbers at the right margin, and number only formulas referenced in the text. Put symbol explanations directly below, beginning with `де` and no colon. Preserve formula content even when the tool cannot validate its mathematics. |
 | FR-10 | When citations and a reference list are present, keep their numbering in order of first mention, check that citations resolve to entries, and format entries using the bibliography data supplied by the author. Flag incomplete records; never fabricate bibliographic details. |
 | FR-11 | Start each appendix on a new page, apply a Ukrainian-letter appendix label and heading, preserve reference order, and continue page numbering. The allowed-letter sequence must be configurable because `DSTU.md` refers to excluded letters without listing them. |
-| FR-12 | Provide a human-readable validation report listing applied settings, detected structural/numbering issues, missing metadata, unresolved citations, and checks that could not be performed. Validation warnings must not silently change or discard report content. |
+| FR-12 | Provide a human-readable validation report listing applied settings, detected structural/numbering issues, missing metadata, unresolved citations, and checks that could not be performed through `--verbose` or an explicitly requested report file. Validation warnings must not silently change or discard report content. |
 
 ## 4. Non-functional requirements
 
