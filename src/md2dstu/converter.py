@@ -23,7 +23,7 @@ class ConversionResult:
     """Outcome of a document conversion run."""
 
     output_path: Path
-    report_path: Path
+    report_path: Path | None
     validation_report: ValidationReport
 
 
@@ -119,12 +119,15 @@ class ReportConverter:
                         draft_docx, self.config.output_path.with_suffix(".docx")
                     )
 
-        # Write validation report
+        # Write a validation report only when the caller explicitly requests a file.
         report_path = self.config.effective_report_path
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_temporary = report_path.with_suffix(report_path.suffix + ".tmp")
-        report_temporary.write_text(validation_report.render_text(), encoding="utf-8")
-        os.replace(report_temporary, report_path)
+        if report_path is not None:
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_temporary = report_path.with_suffix(report_path.suffix + ".tmp")
+            report_temporary.write_text(
+                validation_report.render_text(), encoding="utf-8"
+            )
+            os.replace(report_temporary, report_path)
 
         return ConversionResult(
             output_path=self.config.output_path,

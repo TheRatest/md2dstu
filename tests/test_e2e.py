@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import re
 import tempfile
 import unittest
 import zipfile
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from md2dstu.cli import main
@@ -23,18 +25,21 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             output_docx = Path(temp_dir) / "output_report.docx"
             report_file = Path(temp_dir) / "output_report.validation.txt"
 
-            exit_code = main(
-                [
-                    str(source_report),
-                    "-o",
-                    str(output_docx),
-                    "--report",
-                    str(report_file),
-                    "--check",
-                ]
-            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        str(source_report),
+                        "-o",
+                        str(output_docx),
+                        "--report",
+                        str(report_file),
+                        "--check",
+                    ]
+                )
 
             self.assertEqual(exit_code, 0, "Conversion exited with non-zero status")
+            self.assertEqual(stdout.getvalue(), "")
             self.assertTrue(output_docx.is_file(), "Generated DOCX does not exist")
             self.assertTrue(report_file.is_file(), "Validation report does not exist")
 
@@ -51,7 +56,7 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                 self.assertIn("word/numbering.xml", namelist)
                 self.assertIn("word/header1.xml", namelist)
 
-    def test_minimal_report_conversion_e2e(self) -> None:
+    def test_default_conversion_is_quiet_and_verbose_prints_validation(self) -> None:
         source_report = PROJECT_ROOT / "examples" / "report-minimal.md"
         self.assertTrue(
             source_report.is_file(), f"Minimal report missing: {source_report}"
@@ -61,24 +66,29 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             output_docx = Path(temp_dir) / "minimal.docx"
             report_file = Path(temp_dir) / "minimal.validation.txt"
 
-            exit_code = main(
-                [
-                    str(source_report),
-                    "-o",
-                    str(output_docx),
-                    "--report",
-                    str(report_file),
-                ]
-            )
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main([str(source_report), "-o", str(output_docx)])
 
             self.assertEqual(exit_code, 0)
             self.assertTrue(output_docx.is_file())
-            self.assertTrue(report_file.is_file())
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertFalse(report_file.exists())
 
-            validation_text = report_file.read_text(encoding="utf-8")
+            verbose_output = Path(temp_dir) / "minimal-verbose.docx"
+            verbose_stdout = io.StringIO()
+            with redirect_stdout(verbose_stdout):
+                verbose_exit_code = main(
+                    [str(source_report), "-o", str(verbose_output), "-v"]
+                )
+
+            self.assertEqual(verbose_exit_code, 0)
             self.assertIn(
-                "DSTU conversion validation: PASS WITH WARNINGS", validation_text
+                "DSTU conversion validation: PASS WITH WARNINGS",
+                verbose_stdout.getvalue(),
             )
+            self.assertIn("Warnings:", verbose_stdout.getvalue())
+            self.assertFalse(Path(str(verbose_output) + ".validation.txt").exists())
 
     def test_code_block_uses_courier_new_11_bold_single(self) -> None:
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-code-") as temp_dir:
@@ -127,9 +137,16 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             )
             output_docx = Path(temp_dir) / "fig.docx"
 
-            self.assertEqual(
-                main([str(source), "-o", str(output_docx), "--no-update-toc"]), 0
-            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                exit_code = main(
+                    [str(source), "-o", str(output_docx), "--no-update-toc"]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stderr.getvalue(), "")
 
             with zipfile.ZipFile(output_docx) as docx_zip:
                 document = docx_zip.read("word/document.xml").decode("utf-8")

@@ -59,6 +59,7 @@ class ConversionConfig:
     numbering_mode: NumberingMode = NumberingMode.SECTION
     include_toc: bool | None = None
     bold_heading2: bool = False
+    verbose: bool = False
     update_toc: bool = True
     check_structural_errors: bool = False
     report_path: Path | None = None
@@ -82,8 +83,6 @@ class ConversionConfig:
         return DEFAULT_REFERENCE_DOCX_PATH.resolve()
 
     @property
-    def effective_report_path(self) -> Path:
-        """Return the explicit validation report path or default beside output."""
-        if self.report_path is not None:
-            return self.report_path.resolve()
-        return Path(str(self.output_path) + ".validation.txt").resolve()
+    def effective_report_path(self) -> Path | None:
+        """Return the explicitly requested validation report path, if any."""
+        return self.report_path.resolve() if self.report_path is not None else None

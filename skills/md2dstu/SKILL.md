@@ -61,8 +61,8 @@ Options: `md2dstu --help`. Full syntax reference with every feature: `examples/r
    - Level-2+ headings in sentence case (`## Опис результатів`).
    - Bibliography file format: copy `examples/references.yaml` (CSL YAML). Fill only verified fields.
    - Institution-specific title page: `title-page: false` in YAML and the first block as `::: title-page` … `:::`.
-4. **Convert:** `md2dstu report.md -o report.docx --check`. Images resolve relative to the `.md`; add dirs with `--resource-path`.
-5. **Done when** exit code is 0 and `report.docx.validation.txt` shows `PASS`. Exit 2 → fix every item under `Errors:` in the Markdown and rerun. Read `Warnings:`; fix those caused by your source.
+4. **Convert:** `md2dstu report.md -o report.docx --check --verbose`. Images resolve relative to the `.md`; add dirs with `--resource-path`.
+5. **Done when** exit code is 0 and stdout's validation report shows `PASS`. Exit 2 → fix every item under `Errors:` in the report and rerun. Read `Warnings:`; fix those caused by your source.
 6. **Report** to the user: output path, validation status, and the "Not automatically verified" items they must eyeball (bibliography correctness, pagination, refresh TOC with Ctrl+A → F9 in Word).
 
 ## Edits
