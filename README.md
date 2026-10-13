@@ -267,9 +267,10 @@ colon.
 
 ### Code listings
 
-Fenced code blocks use the `Source Code` style: Courier New 11 pt, bold,
-single line spacing, left aligned, no first-line indent. Syntax highlighting
-is disabled so code stays black.
+Inline code uses regular Courier New 11 pt; fenced code blocks use bold
+Courier New 11 pt. Fenced blocks use the `Source Code` style with single line
+spacing, left alignment, and no first-line indent. Syntax highlighting is
+disabled so code stays black.
 
 ````markdown
 ```python

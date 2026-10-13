@@ -12,7 +12,7 @@ from md2dstu.docx.document import DocumentModifier
 from md2dstu.docx.headers import HeaderModifier
 from md2dstu.docx.namespaces import register_openxml_namespaces, w_tag
 from md2dstu.docx.numbering import NumberingModifier
-from md2dstu.docx.styles import StyleModifier
+from md2dstu.docx.styles import StyleModifier, normalize_code_styles
 from md2dstu.docx.tables import TableModifier
 
 
@@ -41,6 +41,9 @@ class DocxPostProcessor:
             if styles_path.is_file():
                 StyleModifier.set_heading2_bold(styles_path, self.bold_heading2)
                 StyleModifier.normalize_toc_styles(styles_path)
+                styles_tree = ET.parse(styles_path)
+                normalize_code_styles(styles_tree.getroot())
+                styles_tree.write(styles_path, encoding="UTF-8", xml_declaration=True)
 
             # 2. Numbering definitions
             if numbering_path.is_file():
@@ -63,6 +66,7 @@ class DocxPostProcessor:
                     NumberingModifier.apply_ukrainian_second_level_markers(
                         doc_root, numbering_path
                     )
+                DocumentModifier.set_code_block_character_style(doc_root)
                 DocumentModifier.collapse_adjacent_heading_spacing(doc_root)
                 DocumentModifier.position_toc_after_title_page(doc_root)
 

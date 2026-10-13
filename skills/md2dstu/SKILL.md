@@ -55,7 +55,7 @@ Options: `md2dstu --help`. Full syntax reference with every feature: `examples/r
    - Lists: write plain `1.` / `-` at every nesting level; the tool converts level 2 to `а)`, level 3 to `i.`.
    - Citations: `[@id]` + entries in `references.yaml`; reference list is `::: {#refs}` + `:::` under the bibliography heading.
    - Refer to every figure/table in prose ("на рисунку 1.1", "у таблиці 1.1") before it appears — the tool does not create cross-references. Prose numbers are typed by hand, so match the mode: `section` → `1.1` (resets per chapter), `continuous`/`none` → `1`, `2`, …
-   - Code: fenced block with language (```` ```python ````) → Courier New 11 bold, single spacing. No auto caption yet: introduce the listing in prose.
+   - Code: inline code → regular Courier New 11; fenced code → bold Courier New 11 with single spacing. No auto caption yet: introduce the listing in prose.
    - Dash in Ukrainian text: en dash `–` with spaces (as in generated captions «Рисунок 1.1 – …»); keep `-` for hyphenated words and `–` without spaces for ranges (`1–5`).
    - Footnotes: `текст[^1]` + `[^1]: примітка.`
    - Level-2+ headings in sentence case (`## Опис результатів`).

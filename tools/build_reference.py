@@ -51,7 +51,11 @@ from md2dstu.docx.namespaces import (
     register_openxml_namespaces,
     w_tag,
 )
-from md2dstu.docx.styles import apply_paragraph_properties, apply_run_properties
+from md2dstu.docx.styles import (
+    apply_paragraph_properties,
+    apply_run_properties,
+    normalize_code_styles,
+)
 from md2dstu.exceptions import ExternalToolError
 
 
@@ -436,6 +440,8 @@ class DstuReferenceBuilder:
                     leader="dot",
                 )
             apply_run_properties(toc_elem, size_half_points=FONT_SIZE_BODY_HALF_POINTS)
+
+        normalize_code_styles(styles_root)
 
     def _configure_page_geometry(self, body: ET.Element) -> None:
         """Set A4 page dimensions, margins, and header references in sectPr."""

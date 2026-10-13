@@ -6,10 +6,13 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from md2dstu.constants import (
+    FONT_NAME_CODE,
     FONT_NAME_TIMES,
     FONT_SIZE_BODY_HALF_POINTS,
+    FONT_SIZE_CODE_HALF_POINTS,
     INDENT_FIRST_LINE_DXA,
     LINE_SPACING_1_5,
+    LINE_SPACING_SINGLE,
     PAGE_CONTENT_WIDTH_DXA,
 )
 from md2dstu.docx.namespaces import (
@@ -90,6 +93,52 @@ def apply_paragraph_properties(
     if outline_level is not None:
         child_element(properties, "outlineLvl", val=str(outline_level))
     return properties
+
+
+def normalize_code_styles(styles_root: ET.Element) -> None:
+    """Use Courier New 11 pt for inline code and bold fenced-code styles."""
+    code_styles = (
+        ("VerbatimChar", "Verbatim Char", "character", False),
+        ("CodeBlockChar", "Code Block Char", "character", True),
+        ("SourceCode", "Source Code", "paragraph", True),
+    )
+    for style_id, name, style_type, bold in code_styles:
+        style = styles_root.find(
+            f".//{w_tag('style')}[@{w_tag('styleId')}='{style_id}']"
+        )
+        if style is None:
+            style = ET.Element(
+                w_tag("style"),
+                {
+                    w_tag("type"): style_type,
+                    w_tag("customStyle"): "1",
+                    w_tag("styleId"): style_id,
+                },
+            )
+            child_element(style, "name", val=name)
+            if style_type == "paragraph":
+                child_element(style, "basedOn", val="Normal")
+                child_element(style, "next", val="BodyText")
+                child_element(style, "qFormat")
+                apply_paragraph_properties(
+                    style,
+                    alignment="left",
+                    line_spacing=LINE_SPACING_SINGLE,
+                    first_line_indent=0,
+                )
+
+            extension_list = styles_root.find(w_tag("extLst"))
+            if extension_list is None:
+                styles_root.append(style)
+            else:
+                styles_root.insert(list(styles_root).index(extension_list), style)
+
+        apply_run_properties(
+            style,
+            font_family=FONT_NAME_CODE,
+            size_half_points=FONT_SIZE_CODE_HALF_POINTS,
+            bold=bold,
+        )
 
 
 class StyleModifier:
