@@ -22,9 +22,9 @@ def normalize_meta_value(value: Any) -> Any:
         return [normalize_meta_value(item) for item in content]
     if tag_type == "MetaBool":
         return bool(content)
-    if tag_type in {"MetaString", "MetaInlines", "MetaBlocks"}:
-        return stringify_pandoc_node(content)
-    return stringify_pandoc_node(content)
+    if tag_type == "MetaString":
+        return str(content or "")
+    return stringify_pandoc_node(content, preserve_line_breaks=True)
 
 
 @dataclass(slots=True)

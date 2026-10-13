@@ -150,6 +150,8 @@ generated contents.
 The `student` and `teacher` maps form a two-column borderless title-page table:
 student details on the left and teacher details on the right. `title` in each
 map is the person's role/position line, not the report's top-level `title`.
+Escaped line feeds (`\n`) in quoted YAML title-page properties are preserved
+as line breaks in the generated document.
 
 Unknown names, signatures, identifiers, and dates are never invented. A
 warning is emitted when common title fields are absent. If the institution has

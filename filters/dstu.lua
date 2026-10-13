@@ -27,6 +27,49 @@ local function text(value)
   return pandoc.utils.stringify(value)
 end
 
+local function metadata_text(value)
+  if value == nil then return "" end
+  if pandoc.utils.type(value) == "Inlines" then
+    local fragments = {}
+    for _, inline in ipairs(value) do
+      if inline.t == "SoftBreak" or inline.t == "LineBreak" then
+        table.insert(fragments, "\n")
+      else
+        table.insert(fragments, pandoc.utils.stringify(inline))
+      end
+    end
+    return table.concat(fragments)
+  end
+  return text(value)
+end
+
+local function metadata_inlines(value)
+  if pandoc.utils.type(value) == "Inlines" then
+    local result = {}
+    for _, inline in ipairs(value) do
+      if inline.t == "SoftBreak" or inline.t == "LineBreak" then
+        table.insert(result, pandoc.LineBreak())
+      else
+        table.insert(result, inline)
+      end
+    end
+    return result
+  end
+
+  local result = {}
+  local value_text = metadata_text(value)
+  local start = 1
+  while true do
+    local finish = value_text:find("\n", start, true)
+    local line = finish and value_text:sub(start, finish - 1) or value_text:sub(start)
+    if line ~= "" then table.insert(result, pandoc.Str(line)) end
+    if not finish then break end
+    table.insert(result, pandoc.LineBreak())
+    start = finish + 1
+  end
+  return result
+end
+
 local function normalize(value)
   local result = pandoc.text.lower(text(value)):gsub("^%s+", ""):gsub("%s+$", "")
   result = result:gsub("^%d+[%.%d]*%s+", "")
@@ -57,27 +100,49 @@ local function xml_escape(value)
   return text(value):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
 end
 
+local function xml_text_runs(value)
+  local value_text = metadata_text(value)
+  local runs = {}
+  local start = 1
+  while true do
+    local finish = value_text:find("\n", start, true)
+    local line = finish and value_text:sub(start, finish - 1) or value_text:sub(start)
+    if line ~= "" then
+      table.insert(runs, '<w:r><w:t xml:space="preserve">' .. xml_escape(line) .. '</w:t></w:r>')
+    end
+    if not finish then break end
+    table.insert(runs, '<w:r><w:br/></w:r>')
+    start = finish + 1
+  end
+  return table.concat(runs)
+end
+
+local function has_metadata_text(value)
+  return metadata_text(value):gsub("%s", "") ~= ""
+end
+
 local function title_details_table(meta)
   local student = meta.student or {}
   local teacher = meta.teacher or {}
-  local student_label = text(student.label)
+  local student_label = metadata_text(student.label)
   if student_label == "" then student_label = "Виконав:" end
-  local student_title = text(student.title)
-  if student_title == "" and text(meta.group) ~= "" then student_title = "студент гр. " .. text(meta.group) end
-  local student_name = text(student.name)
-  if student_name == "" then student_name = text(meta.author) end
+  local student_title = metadata_text(student.title)
+  local group = metadata_text(meta.group)
+  if student_title == "" and group ~= "" then student_title = "студент гр. " .. group end
+  local student_name = metadata_text(student.name)
+  if student_name == "" then student_name = metadata_text(meta.author) end
 
-  local teacher_label = text(teacher.label)
+  local teacher_label = metadata_text(teacher.label)
   if teacher_label == "" then teacher_label = "Прийняв(ла):" end
-  local teacher_title = text(teacher.title)
-  local teacher_name = text(teacher.name)
-  if teacher_name == "" then teacher_name = text(meta.supervisor) end
+  local teacher_title = metadata_text(teacher.title)
+  local teacher_name = metadata_text(teacher.name)
+  if teacher_name == "" then teacher_name = metadata_text(meta.supervisor) end
 
   local function cell(lines)
     local paragraphs = {}
     for _, line in ipairs(lines) do
       if line ~= "" then
-        table.insert(paragraphs, '<w:p><w:pPr><w:pStyle w:val="TitleDetailsCell"/></w:pPr><w:r><w:t xml:space="preserve">' .. xml_escape(line) .. '</w:t></w:r></w:p>')
+        table.insert(paragraphs, '<w:p><w:pPr><w:pStyle w:val="TitleDetailsCell"/></w:pPr>' .. xml_text_runs(line) .. '</w:p>')
       end
     end
     return '<w:tc><w:tcPr><w:tcW w:w="4961" w:type="dxa"/><w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders></w:tcPr>' .. table.concat(paragraphs) .. '</w:tc>'
@@ -94,31 +159,33 @@ local function title_blocks(meta)
   local blocks = {}
   local institution_fields = {"ministry", "institution", "faculty", "department"}
   for _, key in ipairs(institution_fields) do
-    if meta[key] ~= nil and text(meta[key]) ~= "" then
-      table.insert(blocks, styled_para({pandoc.Str(text(meta[key]))}, "Title Institution"))
+    if meta[key] ~= nil and has_metadata_text(meta[key]) then
+      table.insert(blocks, styled_para(metadata_inlines(meta[key]), "Title Institution"))
     end
   end
   table.insert(blocks, styled_para({pandoc.Str(" ")}, "Title Spacer Top"))
 
-  if meta["approval"] ~= nil and text(meta["approval"]) ~= "" then
-    table.insert(blocks, styled_para({pandoc.Str(text(meta["approval"]))}, "Title Approval"))
+  if meta["approval"] ~= nil and has_metadata_text(meta["approval"]) then
+    table.insert(blocks, styled_para(metadata_inlines(meta["approval"]), "Title Approval"))
   end
-  if meta["report-type"] ~= nil and text(meta["report-type"]) ~= "" then
-    table.insert(blocks, styled_para({pandoc.Str(text(meta["report-type"]))}, "Title Work Type"))
+  if meta["report-type"] ~= nil and has_metadata_text(meta["report-type"]) then
+    table.insert(blocks, styled_para(metadata_inlines(meta["report-type"]), "Title Work Type"))
   end
-  if meta.title ~= nil and text(meta.title) ~= "" then
-    table.insert(blocks, styled_para({pandoc.Str(text(meta.title))}, "Title Document Title"))
+  if meta.title ~= nil and has_metadata_text(meta.title) then
+    table.insert(blocks, styled_para(metadata_inlines(meta.title), "Title Document Title"))
   end
   table.insert(blocks, styled_para({pandoc.Str(" ")}, "Title Spacer Middle"))
 
   table.insert(blocks, title_details_table(meta))
   table.insert(blocks, styled_para({pandoc.Str(" ")}, "Title Spacer Bottom"))
 
-  local place = text(meta.city)
-  local year = text(meta.year)
+  local place = metadata_text(meta.city)
+  local year = metadata_text(meta.year)
   if place ~= "" and year ~= "" then place = place .. " – " .. year elseif year ~= "" then place = year end
   if place ~= "" then
-    table.insert(blocks, styled_para({pandoc.Str(place), pandoc.RawInline("openxml", '<w:r><w:br w:type="page"/></w:r>')}, "Title Place"))
+    local place_inlines = metadata_inlines(place)
+    table.insert(place_inlines, pandoc.RawInline("openxml", '<w:r><w:br w:type="page"/></w:r>'))
+    table.insert(blocks, styled_para(place_inlines, "Title Place"))
   else
     table.insert(blocks, page_break())
   end
@@ -294,7 +361,7 @@ function Pandoc(doc)
   end
   local first = doc.blocks[1]
   local manual_title = first and first.t == "Div" and first.classes:includes("title-page")
-  local generate_title = meta_bool(doc.meta["title-page"], true) and text(doc.meta.title) ~= ""
+  local generate_title = meta_bool(doc.meta["title-page"], true) and has_metadata_text(doc.meta.title)
   if manual_title then
     table.insert(doc.blocks, 2, page_break())
   elseif generate_title then
