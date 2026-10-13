@@ -91,6 +91,82 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             self.assertIn("Warnings:", verbose_stdout.getvalue())
             self.assertFalse(Path(str(verbose_output) + ".validation.txt").exists())
 
+    def test_yaml_metadata_line_feeds_render_as_title_page_breaks(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-meta-linefeed-") as temp_dir:
+            source = Path(temp_dir) / "line-feeds.md"
+            source.write_text(
+                '---\n'
+                'title: "з дисципліни «Паралельне програмування»\\n'
+                'на тему «Технології виміру часу та їх практичне використання»"\n'
+                'approval: "ЗАТВЕРДЖУЮ\\nКерівник практики"\n'
+                'student:\n'
+                '  label: "Виконав:"\n'
+                '  title: "студент групи ПІ-22\\nденна форма навчання"\n'
+                '  name: "Іваненко І. І."\n'
+                'teacher:\n'
+                '  name: "Петренко П. П."\n'
+                'city: "Київ\\nУкраїна"\n'
+                'year: "2026"\n'
+                'toc: false\n'
+                '---\n\n'
+                '# РОЗДІЛ\n\nТекст.\n\n'
+                '# ВИСНОВКИ {-}\n\nВисновок.\n',
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "line-feeds.docx"
+
+            self.assertEqual(
+                main([str(source), "-o", str(output_docx), "--no-update-toc"]), 0
+            )
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                document = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            expected_by_style = {
+                "TitleDocumentTitle": [
+                    "з дисципліни «Паралельне програмування»",
+                    "на тему «Технології виміру часу та їх практичне використання»",
+                ],
+                "TitleApproval": ["ЗАТВЕРДЖУЮ", "Керівник практики"],
+                "TitleDetailsCell": ["студент групи ПІ-22", "денна форма навчання"],
+                "TitlePlace": ["Київ", "Україна – 2026"],
+            }
+            for style_id, expected_lines in expected_by_style.items():
+                with self.subTest(style=style_id):
+                    paragraph = next(
+                        paragraph
+                        for paragraph in document.iter(w_tag("p"))
+                        if (
+                            (style := paragraph.find(
+                                f"./{w_tag('pPr')}/{w_tag('pStyle')}"
+                            ))
+                            is not None
+                            and style.get(w_tag("val")) == style_id
+                            and "".join(
+                                text.text or ""
+                                for text in paragraph.iter(w_tag("t"))
+                            )
+                            == "".join(expected_lines)
+                        )
+                    )
+                    self.assertEqual(
+                        [
+                            text.text or ""
+                            for text in paragraph.iter(w_tag("t"))
+                        ],
+                        expected_lines,
+                    )
+                    self.assertEqual(
+                        len(
+                            [
+                                line_break
+                                for line_break in paragraph.iter(w_tag("br"))
+                                if line_break.get(w_tag("type")) != "page"
+                            ]
+                        ),
+                        len(expected_lines) - 1,
+                    )
+
     def test_code_uses_courier_new_11_bold_single(self) -> None:
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-code-") as temp_dir:
             source = Path(temp_dir) / "code.md"

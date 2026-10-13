@@ -35,8 +35,8 @@ def determine_source_format(path: Path) -> str:
     )
 
 
-def stringify_pandoc_node(node: Any) -> str:
-    """Extract plain text from Pandoc inline or block AST nodes."""
+def stringify_pandoc_node(node: Any, *, preserve_line_breaks: bool = False) -> str:
+    """Extract plain text, optionally preserving Pandoc line breaks as newlines."""
     text_fragments: list[str] = []
 
     def visit(item: Any) -> None:
@@ -51,13 +51,18 @@ def stringify_pandoc_node(node: Any) -> str:
             if tag_type in {"Str", "Code", "Math"}:
                 text = content if isinstance(content, str) else content[-1]
                 text_fragments.append(str(text))
-            elif tag_type in {"Space", "SoftBreak", "LineBreak"}:
+            elif tag_type == "Space":
                 text_fragments.append(" ")
+            elif tag_type in {"SoftBreak", "LineBreak"}:
+                text_fragments.append("\n" if preserve_line_breaks else " ")
             else:
                 visit(content)
 
     visit(node)
     joined = "".join(text_fragments)
+    if preserve_line_breaks:
+        lines = [re.sub(r"[^\S\n]+", " ", line).strip() for line in joined.split("\n")]
+        return "\n".join(lines).strip("\n")
     return re.sub(r"\s+", " ", joined).strip()
 
 

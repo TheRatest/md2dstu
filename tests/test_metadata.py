@@ -8,6 +8,24 @@ from md2dstu.metadata import DocumentMetadata, normalize_meta_value
 
 
 class MetadataTestCase(unittest.TestCase):
+    def test_normalize_meta_value_preserves_explicit_line_breaks(self) -> None:
+        metadata_value = {
+            "t": "MetaInlines",
+            "c": [
+                {"t": "Str", "c": "first"},
+                {"t": "SoftBreak"},
+                {"t": "Str", "c": "second"},
+                {"t": "LineBreak"},
+                {"t": "Str", "c": "third"},
+            ],
+        }
+
+        self.assertEqual(normalize_meta_value(metadata_value), "first\nsecond\nthird")
+        self.assertEqual(
+            normalize_meta_value({"t": "MetaString", "c": "first\nsecond"}),
+            "first\nsecond",
+        )
+
     def test_normalize_meta_value(self) -> None:
         raw_meta = {
             "title": {"t": "MetaString", "c": "Тестовий звіт"},
