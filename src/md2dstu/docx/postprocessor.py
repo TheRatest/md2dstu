@@ -19,8 +19,11 @@ from md2dstu.docx.tables import TableModifier
 class DocxPostProcessor:
     """Orchestrates XML post-processing steps on the unpacked DOCX package."""
 
-    def __init__(self, bold_heading2: bool = False) -> None:
-        self.bold_heading2 = bold_heading2
+    def __init__(
+        self, bold_headings: bool = False, alt_heading_style: bool = False
+    ) -> None:
+        self.bold_headings = bold_headings
+        self.alt_heading_style = alt_heading_style
 
     def process(self, docx_path: Path) -> None:
         """Unpack docx_path, apply all style and structural corrections, and repack."""
@@ -38,11 +41,15 @@ class DocxPostProcessor:
             document_path = word_dir / "document.xml"
 
             # 1. Styles adjustments
+            styles_root: ET.Element | None = None
             if styles_path.is_file():
-                StyleModifier.set_heading2_bold(styles_path, self.bold_heading2)
+                StyleModifier.set_headings_bold(styles_path, self.bold_headings)
                 StyleModifier.normalize_toc_styles(styles_path)
                 styles_tree = ET.parse(styles_path)
-                normalize_code_styles(styles_tree.getroot())
+                styles_root = styles_tree.getroot()
+                normalize_code_styles(styles_root)
+                if self.alt_heading_style:
+                    StyleModifier.apply_alternative_heading_style(styles_root)
                 styles_tree.write(styles_path, encoding="UTF-8", xml_declaration=True)
 
             # 2. Numbering definitions
@@ -67,6 +74,10 @@ class DocxPostProcessor:
                         doc_root, numbering_path
                     )
                 DocumentModifier.set_code_block_character_style(doc_root)
+                if self.alt_heading_style:
+                    DocumentModifier.apply_alternative_heading_style(
+                        doc_root, styles_root
+                    )
                 DocumentModifier.collapse_adjacent_heading_spacing(doc_root)
                 DocumentModifier.position_toc_after_title_page(doc_root)
 

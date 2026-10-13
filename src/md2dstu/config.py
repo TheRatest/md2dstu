@@ -58,7 +58,8 @@ class ConversionConfig:
     resource_paths: list[Path] = field(default_factory=list)
     numbering_mode: NumberingMode = NumberingMode.SECTION
     include_toc: bool | None = None
-    bold_heading2: bool = False
+    bold_headings: bool = False
+    alt_heading_style: bool = False
     verbose: bool = False
     update_toc: bool = True
     check_structural_errors: bool = False

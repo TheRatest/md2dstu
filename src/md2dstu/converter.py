@@ -91,7 +91,10 @@ class ReportConverter:
                 validation_report.add_warning(warning)
 
             # Post-process XML structures
-            postprocessor = DocxPostProcessor(bold_heading2=self.config.bold_heading2)
+            postprocessor = DocxPostProcessor(
+                bold_headings=self.config.bold_headings,
+                alt_heading_style=self.config.alt_heading_style,
+            )
             postprocessor.process(draft_docx)
 
             # Update TOC if requested and LibreOffice is available

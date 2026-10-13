@@ -16,7 +16,8 @@ class CliTestCase(unittest.TestCase):
         self.assertEqual(config.output_path, Path("report.docx").resolve())
         self.assertEqual(config.output_format, OutputFormat.DOCX)
         self.assertEqual(config.numbering_mode, NumberingMode.SECTION)
-        self.assertFalse(config.bold_heading2)
+        self.assertFalse(config.bold_headings)
+        self.assertFalse(config.alt_heading_style)
         self.assertFalse(config.verbose)
         self.assertTrue(config.update_toc)
         self.assertFalse(config.check_structural_errors)
@@ -30,7 +31,8 @@ class CliTestCase(unittest.TestCase):
                 "custom.odt",
                 "--numbering",
                 "continuous",
-                "--bold-heading2",
+                "-b",
+                "-A",
                 "--verbose",
                 "--report",
                 "validation.txt",
@@ -42,7 +44,8 @@ class CliTestCase(unittest.TestCase):
         self.assertEqual(config.output_path, Path("custom.odt").resolve())
         self.assertEqual(config.output_format, OutputFormat.ODT)
         self.assertEqual(config.numbering_mode, NumberingMode.CONTINUOUS)
-        self.assertTrue(config.bold_heading2)
+        self.assertTrue(config.bold_headings)
+        self.assertTrue(config.alt_heading_style)
         self.assertTrue(config.verbose)
         self.assertEqual(config.report_path, Path("validation.txt").resolve())
         self.assertFalse(config.update_toc)

@@ -167,6 +167,100 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                         len(expected_lines) - 1,
                     )
 
+    def test_heading_style_options_apply_to_all_levels(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-heading-style-") as temp_dir:
+            source = Path(temp_dir) / "headings.md"
+            source.write_text(
+                '---\ntitle: "Заголовки"\ntoc: false\n---\n\n'
+                "# Перший рівень\n\nТекст перед другим рівнем.\n\n"
+                "## Другий рівень\n\n"
+                "### Третій рівень\n\nТекст перед четвертим рівнем.\n\n"
+                "#### Четвертий рівень\n\nТекст.\n\n"
+                "# ВИСНОВКИ {-}\n\nВисновок.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "headings.docx"
+
+            self.assertEqual(
+                main(
+                    [
+                        str(source),
+                        "-o",
+                        str(output_docx),
+                        "--no-update-toc",
+                        "--bold-headings",
+                        "--alt-heading-style",
+                    ]
+                ),
+                0,
+            )
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                styles_root = ET.fromstring(docx_zip.read("word/styles.xml"))
+                document_root = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            for level in range(1, 10):
+                with self.subTest(style=f"Heading{level}"):
+                    style = styles_root.find(
+                        f".//{w_tag('style')}[@{w_tag('styleId')}='Heading{level}']"
+                    )
+                    self.assertIsNotNone(style)
+                    run_properties = style.find(w_tag("rPr"))
+                    self.assertIsNotNone(run_properties.find(w_tag("b")))
+                    paragraph_properties = style.find(w_tag("pPr"))
+                    spacing = paragraph_properties.find(w_tag("spacing"))
+                    self.assertEqual(spacing.get(w_tag("before")), "0")
+                    self.assertEqual(spacing.get(w_tag("after")), "0")
+
+            body = document_root.find(w_tag("body"))
+            self.assertIsNotNone(body)
+            children = list(body)
+            for level in (1, 2, 3, 4):
+                heading_id = f"Heading{level}"
+                heading_index = next(
+                    index
+                    for index, child in enumerate(children)
+                    if child.tag == w_tag("p")
+                    and (
+                        (style := child.find(
+                            f"./{w_tag('pPr')}/{w_tag('pStyle')}"
+                        ))
+                        is not None
+                        and style.get(w_tag("val")) == heading_id
+                    )
+                )
+                heading = children[heading_index]
+                spacing = heading.find(f"./{w_tag('pPr')}/{w_tag('spacing')}")
+                self.assertEqual(spacing.get(w_tag("before")), "0")
+                self.assertEqual(spacing.get(w_tag("after")), "0")
+
+                if level in (2, 4):
+                    preceding = next(
+                        child
+                        for child in reversed(children[:heading_index])
+                        if child.tag == w_tag("p")
+                    )
+                    self.assertEqual(preceding.tag, w_tag("p"))
+                    self.assertFalse(
+                        any(
+                            (text.text or "").strip()
+                            for text in preceding.iter(w_tag("t"))
+                        )
+                    )
+                elif level == 3:
+                    preceding = next(
+                        child
+                        for child in reversed(children[:heading_index])
+                        if child.tag == w_tag("p")
+                    )
+                    self.assertEqual(preceding.tag, w_tag("p"))
+                    self.assertEqual(
+                        preceding.find(
+                            f"./{w_tag('pPr')}/{w_tag('pStyle')}"
+                        ).get(w_tag("val")),
+                        "Heading2",
+                    )
+
     def test_code_uses_courier_new_11_bold_single(self) -> None:
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-code-") as temp_dir:
             source = Path(temp_dir) / "code.md"
