@@ -145,32 +145,87 @@ class StyleModifier:
     """Encapsulates style modifications for DOCX styles.xml."""
 
     @staticmethod
-    def set_heading2_bold(styles_path: Path, enabled: bool) -> None:
-        """Toggle bold weight for Heading 2 style in styles.xml."""
+    def set_headings_bold(styles_path: Path, enabled: bool) -> None:
+        """Apply bold weight to all heading styles, preserving the default otherwise."""
         register_openxml_namespaces()
         tree = ET.parse(styles_path)
         root = tree.getroot()
-        heading_element = root.find(
-            f".//{w_tag('style')}[@{w_tag('styleId')}='Heading2']"
-        )
-        if heading_element is None:
-            return
+        for level in range(1, 10):
+            heading = root.find(
+                f".//{w_tag('style')}[@{w_tag('styleId')}='Heading{level}']"
+            )
+            if heading is None:
+                continue
 
-        run_properties = heading_element.find(w_tag("rPr"))
-        if run_properties is None:
-            run_properties = ET.SubElement(heading_element, w_tag("rPr"))
+            run_properties = heading.find(w_tag("rPr"))
+            if run_properties is None:
+                if not enabled:
+                    continue
+                run_properties = ET.SubElement(heading, w_tag("rPr"))
 
-        for tag_name in ("b", "bCs"):
-            element = run_properties.find(w_tag(tag_name))
-            if enabled:
-                if element is None:
-                    ET.SubElement(run_properties, w_tag(tag_name))
-                else:
-                    element.attrib.pop(w_tag("val"), None)
-            elif element is not None:
-                run_properties.remove(element)
+            for tag_name in ("b", "bCs"):
+                element = run_properties.find(w_tag(tag_name))
+                if enabled:
+                    if element is None:
+                        ET.SubElement(run_properties, w_tag(tag_name))
+                    else:
+                        element.attrib.pop(w_tag("val"), None)
+                elif level == 2 and element is not None:
+                    run_properties.remove(element)
 
         tree.write(styles_path, encoding="UTF-8", xml_declaration=True)
+
+    @staticmethod
+    def apply_alternative_heading_style(styles_root: ET.Element) -> None:
+        """Remove before/after spacing from Heading 1 through Heading 9 styles."""
+        for level in range(1, 10):
+            heading = styles_root.find(
+                f".//{w_tag('style')}[@{w_tag('styleId')}='Heading{level}']"
+            )
+            if heading is None:
+                continue
+
+            paragraph_properties = heading.find(w_tag("pPr"))
+            if paragraph_properties is None:
+                paragraph_properties = ET.Element(w_tag("pPr"))
+                run_properties = heading.find(w_tag("rPr"))
+                if run_properties is None:
+                    heading.append(paragraph_properties)
+                else:
+                    heading.insert(list(heading).index(run_properties), paragraph_properties)
+
+            spacing = paragraph_properties.find(w_tag("spacing"))
+            if spacing is None:
+                spacing = ET.Element(w_tag("spacing"))
+                later_properties = {
+                    w_tag(name)
+                    for name in (
+                        "ind",
+                        "contextualSpacing",
+                        "mirrorIndents",
+                        "suppressOverlap",
+                        "jc",
+                        "textDirection",
+                        "textAlignment",
+                        "outlineLvl",
+                        "divId",
+                        "cnfStyle",
+                        "rPr",
+                        "sectPr",
+                        "pPrChange",
+                    )
+                }
+                position = next(
+                    (
+                        index
+                        for index, child in enumerate(paragraph_properties)
+                        if child.tag in later_properties
+                    ),
+                    len(paragraph_properties),
+                )
+                paragraph_properties.insert(position, spacing)
+            spacing.set(w_tag("before"), "0")
+            spacing.set(w_tag("after"), "0")
 
     @staticmethod
     def normalize_toc_styles(styles_path: Path) -> None:

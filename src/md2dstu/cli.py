@@ -59,9 +59,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Insert an automatic Table of Contents field (use --no-toc to disable)",
     )
     parser.add_argument(
-        "--bold-heading2",
+        "-b",
+        "--bold-headings",
         action="store_true",
-        help="Apply bold weight to level-2 headings (Heading 2)",
+        help="Apply bold weight to all heading levels (Heading 1-9)",
+    )
+    parser.add_argument(
+        "-A",
+        "--alt-heading-style",
+        action="store_true",
+        help="Use compact headings with one blank line before headings following same-page content",
     )
     parser.add_argument(
         "--no-update-toc",
@@ -114,7 +121,8 @@ def parse_arguments_to_config(argv: list[str] | None = None) -> ConversionConfig
         resource_paths=[p.resolve() for p in args.resource_path],
         numbering_mode=numbering_mode,
         include_toc=args.toc,
-        bold_heading2=args.bold_heading2,
+        bold_headings=args.bold_headings,
+        alt_heading_style=args.alt_heading_style,
         verbose=args.verbose,
         update_toc=not args.no_update_toc,
         check_structural_errors=args.check,

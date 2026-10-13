@@ -90,8 +90,8 @@ Common commands:
 # Disable heading numbers; figures and tables keep continuous numbers
 ./md2dstu report.md --numbering none -o report.docx
 
-# Make second-level headings bold and print validation details
-./md2dstu report.md --bold-heading2 --verbose -o report.docx
+# Make every heading bold, use compact heading spacing, and print validation details
+./md2dstu report.md --bold-headings --alt-heading-style --verbose -o report.docx
 
 # Use an institution's DOCX as the formatting reference
 ./md2dstu report.md --reference-doc institution-reference.docx -o report.docx
@@ -105,9 +105,12 @@ still creates the document, but exits with status 2 if required
 structure/title information fails validation; without it, content problems are
 reported in the validation report without failing conversion.
 
-`--bold-heading2` changes only Heading 2 in the generated DOCX; without the
-flag, second-level headings remain regular weight. If an external
-`--reference-doc` is supplied, this option still updates its `Heading2` style.
+`--bold-headings` / `-b` applies bold weight to Heading 1–9. Without this flag,
+Heading 1 and Heading 3–9 keep their reference-document styling, while Heading
+2 remains regular weight as before. `--alt-heading-style` / `-A` removes
+before/after spacing from Heading 1–9 and puts one blank line before headings
+preceded by same-page content (page breaks are respected). Both options also
+apply when an external `--reference-doc` is supplied.
 
 ## Source structure
 
