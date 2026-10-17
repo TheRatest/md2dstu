@@ -163,7 +163,7 @@ local function title_blocks(meta)
       table.insert(blocks, styled_para(metadata_inlines(meta[key]), "Title Institution"))
     end
   end
-  table.insert(blocks, styled_para({pandoc.Str(" ")}, "Title Spacer Top"))
+  table.insert(blocks, styled_para({}, "Title Spacer Top"))
 
   if meta["approval"] ~= nil and has_metadata_text(meta["approval"]) then
     table.insert(blocks, styled_para(metadata_inlines(meta["approval"]), "Title Approval"))
@@ -174,10 +174,10 @@ local function title_blocks(meta)
   if meta.title ~= nil and has_metadata_text(meta.title) then
     table.insert(blocks, styled_para(metadata_inlines(meta.title), "Title Document Title"))
   end
-  table.insert(blocks, styled_para({pandoc.Str(" ")}, "Title Spacer Middle"))
+  table.insert(blocks, styled_para({}, "Title Spacer Middle"))
 
   table.insert(blocks, title_details_table(meta))
-  table.insert(blocks, styled_para({pandoc.Str(" ")}, "Title Spacer Bottom"))
+  table.insert(blocks, styled_para({}, "Title Spacer Bottom"))
 
   local place = metadata_text(meta.city)
   local year = metadata_text(meta.year)
@@ -269,7 +269,7 @@ function Figure(el)
     local number = caption_number("figure")
     el.caption = prefix_caption(el.caption, "Рисунок " .. number .. " –")
   end
-  return {el, styled_para({pandoc.Str(" ")}, "Figure Spacer")}
+  return {el, styled_para({}, "Figure Spacer")}
 end
 
 function Table(el)
@@ -279,7 +279,7 @@ function Table(el)
   end
   -- A dedicated blank 1.5-spaced paragraph guarantees separation from the
   -- following body paragraph in Word and LibreOffice.
-  return {el, styled_para({pandoc.Str(" ")}, "Table Spacer")}
+  return {el, styled_para({}, "Table Spacer")}
 end
 
 function CodeBlock(el)
@@ -354,7 +354,7 @@ function Pandoc(doc)
         end
         table.insert(keyword_inlines, pandoc.Str("."))
         table.insert(doc.blocks, i + 1, pandoc.Para(keyword_inlines))
-        table.insert(doc.blocks, i + 2, styled_para({pandoc.Str(" ")}, "Table Spacer"))
+        table.insert(doc.blocks, i + 2, styled_para({}, "Table Spacer"))
         break
       end
     end
