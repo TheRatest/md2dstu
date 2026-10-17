@@ -165,7 +165,7 @@ class PandocBridge:
             "--from",
             source_format,
             "--to",
-            "docx",
+            "docx+empty_paragraphs",
             "--standalone",
             "--reference-doc",
             str(reference_docx),
