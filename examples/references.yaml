@@ -10,3 +10,7 @@ references:
     issued:
       date-parts:
         - [2026]
+    URL: "https://example.com/source"
+    accessed:
+      date-parts:
+        - [2026, 10, 24]

@@ -167,6 +167,40 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                         len(expected_lines) - 1,
                     )
 
+    def test_bibliography_includes_access_date(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-accessed-") as temp_dir:
+            source = Path(temp_dir) / "accessed.md"
+            source.write_text(
+                '---\ntitle: "T"\ntoc: false\nreferences:\n'
+                '  - id: web-source\n'
+                '    type: webpage\n'
+                '    title: "Приклад вебсторінки"\n'
+                '    URL: "https://example.com"\n'
+                '    accessed:\n'
+                '      date-parts:\n'
+                '        - [2026, 10, 24]\n'
+                '---\n\n# РОЗДІЛ\n\nЦитата [@web-source].\n\n'
+                '# ПЕРЕЛІК ДЖЕРЕЛ ПОСИЛАННЯ {-}\n\n'
+                '::: {#refs}\n:::\n\n# ВИСНОВКИ {-}\n\nТекст.\n',
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "accessed.docx"
+
+            self.assertEqual(
+                main([str(source), "-o", str(output_docx), "--no-update-toc"]), 0
+            )
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                document_root = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            document_text = "".join(
+                text.text or "" for text in document_root.iter(w_tag("t"))
+            )
+            self.assertIn(
+                "URL: https://example.com (дата звернення: 24.10.2026)",
+                document_text,
+            )
+
     def test_heading_style_options_apply_to_all_levels(self) -> None:
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-heading-style-") as temp_dir:
             source = Path(temp_dir) / "headings.md"

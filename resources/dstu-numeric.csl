@@ -16,6 +16,13 @@
   <macro name="issued">
     <date variable="issued"><date-part name="year"/></date>
   </macro>
+  <macro name="accessed">
+    <date variable="accessed" prefix="(дата звернення: " suffix=")">
+      <date-part name="day" form="numeric-leading-zeros" suffix="."/>
+      <date-part name="month" form="numeric-leading-zeros" suffix="."/>
+      <date-part name="year"/>
+    </date>
+  </macro>
   <citation collapse="citation-number">
     <sort><key variable="citation-number"/></sort>
     <layout prefix="[" suffix="]" delimiter=", "><text variable="citation-number"/></layout>
@@ -31,7 +38,10 @@
         <group delimiter=", "><text variable="publisher-place"/><text variable="publisher"/><text macro="issued"/></group>
         <group delimiter=", "><text variable="volume" prefix="Т. "/><text variable="issue" prefix="№ "/><text variable="page" prefix="С. "/></group>
         <text variable="DOI" prefix="DOI: "/>
-        <text variable="URL"/>
+        <group delimiter=" ">
+          <text variable="URL" prefix="URL: "/>
+          <text macro="accessed"/>
+        </group>
       </group>
     </layout>
   </bibliography>
