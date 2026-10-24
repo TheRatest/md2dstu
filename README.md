@@ -292,7 +292,8 @@ sentence in the prose.
 Use Pandoc citation syntax and a bibliography:
 
 ```markdown
-Відомий підхід описано у праці [@source-id].
+Відомий підхід описано у праці [@source-id]. Кілька джерел подають в одній
+групі: [@first-source; @second-source].
 
 # ПЕРЕЛІК ДЖЕРЕЛ ПОСИЛАННЯ {-}
 ::: {#refs}

@@ -97,7 +97,8 @@ def fibonacci(n: int) -> list[int]:
     return result[:n]
 ```
 
-Посилання на джерело має вигляд [@example].
+Посилання на джерело має вигляд [@example-report]. Кілька джерел подають в
+одній групі Pandoc, наприклад [@example-book; @example-article].
 
 # ВИСНОВКИ {-}
 

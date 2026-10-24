@@ -1,10 +1,13 @@
 references:
-  - id: example
+  # Звіт установи
+  - id: example-report
     type: report
     author:
       - family: "Прізвище"
         given: "Ім'я"
-    title: "Назва джерела"
+    title: "Назва звіту"
+    genre: "Науковий звіт"
+    number: "НДР-2026-01"
     publisher: "Назва установи"
     publisher-place: "Київ"
     number-of-pages: 42
@@ -12,6 +15,106 @@ references:
       date-parts:
         - [2026]
     URL: "https://example.com/source"
+    accessed:
+      date-parts:
+        - [2026, 10, 24]
+
+  # Книга з відомостями про видання та редактора
+  - id: example-book
+    type: book
+    author:
+      - family: "Авторенко"
+        given: "Анна Андріївна"
+    title: "Назва книги"
+    genre: "Навчальний посібник"
+    editor:
+      - family: "Редакторенко"
+        given: "Роман Романович"
+    edition: "2-ге вид., перероб. і допов."
+    publisher: "Назва видавництва"
+    publisher-place: "Львів"
+    number-of-pages: 256
+    ISBN: "978-000-0000-00-0"
+    issued:
+      date-parts:
+        - [2025]
+
+  # Розділ у книзі
+  - id: example-chapter
+    type: chapter
+    author:
+      - family: "Розділенко"
+        given: "Олена Олегівна"
+    title: "Назва розділу"
+    container-title: "Назва колективної монографії"
+    editor:
+      - family: "Упорядник"
+        given: "Уляна Юріївна"
+    publisher: "Академвидав"
+    publisher-place: "Київ"
+    page: "45-68"
+    issued:
+      date-parts:
+        - [2024]
+
+  # Стаття в науковому журналі; DOI має пріоритет над URL
+  - id: example-article
+    type: article-journal
+    author:
+      - family: "Дослідник"
+        given: "Дмитро Данилович"
+      - family: "Науковець"
+        given: "Наталія Назарівна"
+    title: "Назва наукової статті"
+    container-title: "Назва наукового журналу"
+    volume: 12
+    issue: 3
+    page: "15-27"
+    DOI: "10.0000/example.2025.001"
+    issued:
+      date-parts:
+        - [2025]
+
+  # Доповідь у збірнику матеріалів конференції
+  - id: example-conference-paper
+    type: paper-conference
+    author:
+      - family: "Доповідач"
+        given: "Дарина Денисівна"
+    title: "Назва доповіді"
+    event-title: "Інформаційні технології: сучасний стан і перспективи"
+    container-title: "Матеріали міжнародної наукової конференції"
+    publisher: "Назва університету"
+    publisher-place: "Харків"
+    page: "101-104"
+    issued:
+      date-parts:
+        - [2026]
+
+  # Нормативно-правовий акт
+  - id: example-legislation
+    type: legislation
+    title: "Назва закону"
+    genre: "Закон України"
+    number: "0000-IX"
+    container-title: "Відомості Верховної Ради України"
+    issue: 10
+    page: "100"
+    issued:
+      date-parts:
+        - [2024, 5, 15]
+
+  # Вебсторінка без DOI: URL обов'язково доповнюють датою звернення
+  - id: example-webpage
+    type: webpage
+    author:
+      - literal: "Назва організації"
+    title: "Назва вебсторінки"
+    container-title: "Назва вебсайту"
+    issued:
+      date-parts:
+        - [2026, 9, 30]
+    URL: "https://example.com/page"
     accessed:
       date-parts:
         - [2026, 10, 24]
