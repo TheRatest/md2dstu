@@ -201,6 +201,66 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                 document_text,
             )
 
+    def test_bibliography_formats_common_dstu_source_types(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-bibliography-") as temp_dir:
+            source = Path(temp_dir) / "bibliography.md"
+            source.write_text(
+                '---\ntitle: "T"\ntoc: false\nreferences:\n'
+                '  - id: book\n'
+                '    type: book\n'
+                '    author: [{family: Петренко, given: Іван Іванович}]\n'
+                '    title: Назва книги\n'
+                '    edition: 2\n'
+                '    publisher-place: Київ\n'
+                '    publisher: Наукова думка\n'
+                '    issued: {date-parts: [[2024]]}\n'
+                '    number-of-pages: 250\n'
+                '  - id: article\n'
+                '    type: article-journal\n'
+                '    author: [{family: Іваненко, given: Петро Петрович}]\n'
+                '    title: Назва статті\n'
+                '    container-title: Назва журналу\n'
+                '    volume: 3\n'
+                '    issue: 2\n'
+                '    page: 10-20\n'
+                '    issued: {date-parts: [[2025]]}\n'
+                '    DOI: 10.1000/test\n'
+                '  - id: law\n'
+                '    type: legislation\n'
+                '    title: Про інформацію\n'
+                '    genre: Закон України\n'
+                '    number: 2657-XII\n'
+                '    issued: {date-parts: [[1992, 10, 2]]}\n'
+                '---\n\n# РОЗДІЛ\n\n[@book; @article; @law].\n\n'
+                '# ПЕРЕЛІК ДЖЕРЕЛ ПОСИЛАННЯ {-}\n\n'
+                '::: {#refs}\n:::\n\n# ВИСНОВКИ {-}\n\nТекст.\n',
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "bibliography.docx"
+
+            self.assertEqual(
+                main([str(source), "-o", str(output_docx), "--no-update-toc"]), 0
+            )
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                document_root = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            document_text = "".join(
+                text.text or "" for text in document_root.iter(w_tag("t"))
+            )
+            self.assertIn(
+                "Петренко І. І. Назва книги. 2 вид. Київ : Наукова думка, 2024. 250 с.",
+                document_text,
+            )
+            self.assertIn(
+                "Іваненко П. П. Назва статті. Назва журналу. 2025. Т. 3, № 2. С. 10–20. DOI: 10.1000/test.",
+                document_text,
+            )
+            self.assertIn(
+                "Про інформацію : Закон України від 02.10.1992 № 2657-XII.",
+                document_text,
+            )
+
     def test_heading_style_options_apply_to_all_levels(self) -> None:
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-heading-style-") as temp_dir:
             source = Path(temp_dir) / "headings.md"

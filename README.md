@@ -300,12 +300,31 @@ Use Pandoc citation syntax and a bibliography:
 ```
 
 The bundled CSL produces numeric square-bracket citations ordered by first
-appearance. It does **not** claim that incomplete bibliography metadata is a
-valid DSTU bibliographic description. Check every author, title, publisher,
-year, page range, DOI/URL, and access date against the institution's required
-standard. The wording in `DSTU.md` (DSTU GOST 7.1) and the skill guidance
-(DSTU 8302:2015 or local current requirements) differ, so local instructions
-must decide which bibliography standard applies.
+appearance. It provides separate descriptions for books and reports, book
+chapters, periodical articles, conference papers, legislation, and web pages.
+It formats authors and contributors, edition, publication data, volume/issue,
+page ranges or extent, identifiers, and electronic access details. When a DOI
+is present it is preferred to the URL; otherwise electronic resources use
+`URL: ... (дата звернення: DD.MM.YYYY)`.
+
+The validator checks cited records for a title, the container required by
+articles and chapters, a URL or DOI for web pages, and an access date whenever
+a URL is used. It also reports citations that do not resolve to a supplied
+record. These checks work with inline CSL YAML records and external BibTeX,
+CSL JSON/YAML, RIS, and other bibliography formats supported by Pandoc.
+
+For a numbered edition, prefer the complete verified wording in CSL metadata,
+for example `edition: "2-ге вид., перероб. і допов."`. A bare numeric value is
+rendered in the portable abbreviated form `2 вид.` because CSL cannot generate
+all Ukrainian ordinal endings correctly.
+
+Automatic formatting cannot establish that author-supplied metadata is true
+or exhaustive, and less common source types can still require manual review.
+Check every author, title, responsibility statement, publisher, year, page
+range, identifier, and date against the source and the institution's required
+standard. `DSTU.md` follows DSTU 3008:2015 and its reference to DSTU GOST
+7.1; access-date and simplified reference punctuation follow DSTU 8302:2015.
+Local instructions take precedence when they prescribe a different form.
 
 ## What the default DOCX controls
 

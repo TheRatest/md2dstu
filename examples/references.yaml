@@ -7,6 +7,7 @@ references:
     title: "Назва джерела"
     publisher: "Назва установи"
     publisher-place: "Київ"
+    number-of-pages: 42
     issued:
       date-parts:
         - [2026]

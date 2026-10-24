@@ -127,6 +127,91 @@ class ValidatorTestCase(unittest.TestCase):
             )
         )
 
+    def test_citation_without_matching_record_produces_error(self) -> None:
+        metadata = DocumentMetadata(title="Звіт", references=[])
+        ast_data = {
+            "blocks": [
+                {
+                    "t": "Cite",
+                    "c": [
+                        [{"citationId": "missing"}],
+                        [{"t": "Str", "c": "[@missing]"}],
+                    ],
+                }
+            ]
+        }
+
+        report = self.validator.validate(ast_data, metadata)
+
+        self.assertIn(
+            "Citation has no matching bibliography record: missing",
+            report.errors,
+        )
+
+    def test_incomplete_web_reference_produces_metadata_warnings(self) -> None:
+        metadata = DocumentMetadata(
+            title="Звіт",
+            references=[
+                {
+                    "id": "web",
+                    "type": "webpage",
+                    "title": "Сторінка",
+                    "URL": "https://example.com",
+                }
+            ],
+        )
+        ast_data = {
+            "blocks": [
+                {
+                    "t": "Cite",
+                    "c": [
+                        [{"citationId": "web"}],
+                        [{"t": "Str", "c": "[@web]"}],
+                    ],
+                }
+            ]
+        }
+
+        report = self.validator.validate(ast_data, metadata)
+
+        self.assertIn(
+            "Bibliography record 'web' has a URL but no access date",
+            report.warnings,
+        )
+
+    def test_complete_external_reference_passes_bibliography_checks(self) -> None:
+        metadata = DocumentMetadata(title="Звіт", bibliography="references.yaml")
+        ast_data = {
+            "blocks": [
+                {
+                    "t": "Cite",
+                    "c": [
+                        [{"citationId": "web"}],
+                        [{"t": "Str", "c": "[@web]"}],
+                    ],
+                }
+            ]
+        }
+        external_references = [
+            {
+                "id": "web",
+                "type": "webpage",
+                "title": "Сторінка",
+                "URL": "https://example.com",
+                "accessed": {"date-parts": [["2026", "10", "24"]]},
+            }
+        ]
+
+        report = self.validator.validate(
+            ast_data,
+            metadata,
+            external_references=external_references,
+        )
+
+        self.assertFalse(
+            any("Bibliography record 'web'" in warning for warning in report.warnings)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -66,7 +66,7 @@ class DocumentMetadata:
     year: str = ""
     numbering: str = "section"
     toc: bool = False
-    bibliography: str | None = None
+    bibliography: str | list[str] | None = None
     references: Any = None
     keywords: list[str] = field(default_factory=list)
     has_manual_title_page: bool = False

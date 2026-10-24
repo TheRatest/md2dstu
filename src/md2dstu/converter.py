@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from md2dstu.bibliography import load_bibliography_entries
 from md2dstu.config import ConversionConfig, NumberingMode
 from md2dstu.constants import DEFAULT_CSL_PATH, DEFAULT_FILTER_PATH
 from md2dstu.docx.postprocessor import DocxPostProcessor
@@ -56,6 +57,10 @@ class ReportConverter:
             ast_data.get("meta", {}),
             has_manual_title_page=has_manual_title_page,
         )
+        external_references, bibliography_warnings = load_bibliography_entries(
+            metadata.bibliography,
+            source_directory=self.config.input_path.parent,
+        )
 
         # Reconcile numbering and TOC settings with metadata defaults
         if (
@@ -67,7 +72,13 @@ class ReportConverter:
         if self.config.include_toc is None:
             self.config.include_toc = metadata.toc
 
-        validation_report = self.validator.validate(ast_data, metadata)
+        validation_report = self.validator.validate(
+            ast_data,
+            metadata,
+            external_references=external_references,
+        )
+        for warning in bibliography_warnings:
+            validation_report.add_warning(warning)
         if ast_warnings.strip():
             for line in ast_warnings.splitlines():
                 if line.strip():
