@@ -267,7 +267,10 @@ class DocumentValidator:
             for node in nodes
             if node.get("t") == "Cite"
             for item in node["c"][0]
-            if isinstance(item, dict) and "citationId" in item
+            if isinstance(item, dict)
+            and "citationId" in item
+            # @fig/@tbl[:label] are figure/table references, not sources
+            and not re.fullmatch(r"(fig|tbl)(:.+)?", item["citationId"])
         }
         if citations and not metadata.bibliography and not metadata.references:
             report.add_error(
