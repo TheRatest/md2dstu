@@ -7,6 +7,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -39,6 +40,19 @@ class LibreOfficeService:
     """Interacts with headless LibreOffice for TOC field evaluation and file conversion."""
 
     @staticmethod
+    def _add_uno_module_path() -> None:
+        """Expose LibreOffice's bundled UNO modules to the active Python."""
+        executable = shutil.which("libreoffice") or shutil.which("soffice")
+        if executable is None:
+            return
+
+        program_directory = Path(executable).resolve().parent
+        if (program_directory / "uno.py").is_file():
+            program_path = str(program_directory)
+            if program_path not in sys.path:
+                sys.path.append(program_path)
+
+    @staticmethod
     def is_libreoffice_available() -> bool:
         """Return True if the libreoffice binary exists in PATH."""
         return shutil.which("libreoffice") is not None
@@ -46,6 +60,8 @@ class LibreOfficeService:
     @staticmethod
     def is_uno_available() -> bool:
         """Return True if the LibreOffice Python UNO binding can be imported."""
+        LibreOfficeService._add_uno_module_path()
+
         try:
             import uno  # noqa: F401
 
@@ -56,6 +72,7 @@ class LibreOfficeService:
     @classmethod
     def update_table_of_contents(cls, docx_path: Path, working_dir: Path) -> None:
         """Populate the automatic Table of Contents and page numbers using headless LibreOffice."""
+        cls._add_uno_module_path()
         try:
             import uno
             from com.sun.star.beans import PropertyValue

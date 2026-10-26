@@ -150,6 +150,10 @@ blank line, then leaves the authored abstract text below. Keywords are never
 inferred or invented. The `РЕФЕРАТ` heading itself is omitted from the
 generated contents.
 
+`lang` only localizes generated bibliography terms. All document text is
+marked as language "None" (`zxx` plus `w:noProof`), so Word and LibreOffice
+do not spell-check it; check spelling in the source file instead.
+
 The `student` and `teacher` maps form a two-column borderless title-page table:
 student details on the left and teacher details on the right. `title` in each
 map is the person's role/position line, not the report's top-level `title`.
@@ -252,7 +256,12 @@ An unknown label becomes `??` and adds a validation warning.
 
 1. **Material that belongs in the report** should be an appendix. Add a
    level-1 `ДОДАТОК А` heading and include text, images, or tables normally.
-   Every appendix starts on a new page and page numbering continues.
+   Every appendix starts on a new page and page numbering continues. Give the
+   title either in the same heading (`# ДОДАТОК А. Назва додатка {.appendix}`)
+   or as the heading right after it (`# ДОДАТОК А {.appendix}` then
+   `## Назва додатка`); both render as "ДОДАТОК А" with the title centred on
+   the next line, followed by 0.64 cm spacing. Figures and tables inside are
+   numbered `А.1`, `А.2`, ….
 2. **A separate independent file** (spreadsheet, source archive, signed PDF)
    is not embedded automatically. Deliver it next to the DOCX and list it in
    the report, or insert it manually as an OLE object in Word. OLE embedding is

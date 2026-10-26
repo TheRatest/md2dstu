@@ -6,7 +6,11 @@ from itertools import pairwise
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from md2dstu.constants import FONT_NAME_CODE, FONT_SIZE_CODE_HALF_POINTS
+from md2dstu.constants import (
+    APPENDIX_TITLE_SPACING_AFTER_DXA,
+    FONT_NAME_CODE,
+    FONT_SIZE_CODE_HALF_POINTS,
+)
 from md2dstu.docx.namespaces import register_openxml_namespaces, w_tag
 
 
@@ -289,6 +293,27 @@ class DocumentModifier:
                 if spacing is None:
                     spacing = ET.SubElement(properties, w_tag("spacing"))
                 spacing.set(w_tag(attribute), "0")
+
+    @staticmethod
+    def set_appendix_title_spacing(document_root: ET.Element) -> None:
+        """Keep the DSTU gap after "ДОДАТОК А" + title, whatever follows it."""
+        body = document_root.find(w_tag("body"))
+        if body is None:
+            return
+
+        for paragraph in body.findall(w_tag("p")):
+            style = paragraph.find(f"./{w_tag('pPr')}/{w_tag('pStyle')}")
+            if style is None or style.get(w_tag("val")) != "Heading1":
+                continue
+            text = "".join(t.text or "" for t in paragraph.iter(w_tag("t")))
+            if not text.strip().upper().startswith(("ДОДАТОК", "APPENDIX")):
+                continue
+
+            properties = paragraph.find(w_tag("pPr"))
+            spacing = properties.find(w_tag("spacing"))
+            if spacing is None:
+                spacing = ET.SubElement(properties, w_tag("spacing"))
+            spacing.set(w_tag("after"), str(APPENDIX_TITLE_SPACING_AFTER_DXA))
 
     @staticmethod
     def position_toc_after_title_page(document_root: ET.Element) -> None:

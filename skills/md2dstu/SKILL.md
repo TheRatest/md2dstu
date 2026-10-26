@@ -36,7 +36,7 @@ Options: `md2dstu --help`. Full syntax reference with every feature: `examples/r
    ---
    ```
 2. **Structure.** Level-1 headings in UPPERCASE. Structural ones get `{-}`; appendices get `{.appendix}`:
-   `# РЕФЕРАТ {-}`, `# ВСТУП {-}`, `# НАЗВА РОЗДІЛУ`, `# ВИСНОВКИ {-}`, `# ПЕРЕЛІК ДЖЕРЕЛ ПОСИЛАННЯ {-}`, `# ДОДАТОК А {.appendix}`.
+   `# РЕФЕРАТ {-}`, `# ВСТУП {-}`, `# НАЗВА РОЗДІЛУ`, `# ВИСНОВКИ {-}`, `# ПЕРЕЛІК ДЖЕРЕЛ ПОСИЛАННЯ {-}`, `# ДОДАТОК А. Назва додатка {.appendix}` (the title goes on the line below "ДОДАТОК А" automatically).
    `ВИСНОВКИ` is required; РЕФЕРАТ/ВСТУП optional. Headings carry no manual numbers and no trailing period — the tool numbers them.
 3. **Body elements** — exact syntax:
    - Figure: image alone in its paragraph → `![Підпис](img.png){width=14cm}` (≤17 cm). Caption without "Рисунок N –".
