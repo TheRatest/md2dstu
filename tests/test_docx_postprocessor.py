@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from md2dstu.docx.document import DocumentModifier
 from md2dstu.docx.namespaces import w_tag
 from md2dstu.docx.styles import StyleModifier
-from md2dstu.docx.tables import TableModifier
+from md2dstu.docx.tables import TableModifier, split_table
 from md2dstu.docx.toc_casing import toc_sentence_case
 
 
@@ -44,6 +45,55 @@ class DocxModifiersTestCase(unittest.TestCase):
         )
         regular_table = ET.fromstring(regular_table_xml)
         self.assertFalse(TableModifier.is_title_details_table(regular_table))
+
+    def test_split_table_repeats_header_and_relabels_previous_end(self) -> None:
+        namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+        def row(text: str) -> str:
+            return f"<w:tr><w:tc><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc></w:tr>"
+
+        document = (
+            f'<w:document xmlns:w="{namespace}"><w:body>'
+            '<w:p><w:pPr><w:pStyle w:val="TableCaption"/></w:pPr>'
+            "<w:r><w:t>Таблиця 2.1 – Дані</w:t></w:r></w:p>"
+            f"<w:tbl>{row('H')}{row('1')}{row('2')}{row('3')}{row('4')}</w:tbl>"
+            "</w:body></w:document>"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docx_path = Path(temp_dir) / "t.docx"
+            with zipfile.ZipFile(docx_path, "w") as archive:
+                archive.writestr("word/document.xml", document)
+
+            self.assertTrue(split_table(docx_path, 0, 3))
+            self.assertTrue(split_table(docx_path, 1, 2))
+            self.assertFalse(split_table(docx_path, 2, 1))
+
+            with zipfile.ZipFile(docx_path) as archive:
+                body = ET.fromstring(archive.read("word/document.xml")).find(
+                    w_tag("body")
+                )
+
+        def text_of(element: ET.Element) -> str:
+            return "".join(t.text or "" for t in element.iter(w_tag("t")))
+
+        self.assertEqual(
+            [text_of(child) for child in body],
+            [
+                "Таблиця 2.1 – Дані",
+                "H12",
+                "Продовження таблиці 2.1",
+                "H3",
+                "Кінець таблиці 2.1",
+                "H4",
+            ],
+        )
+        labels = [child for child in body if child.tag == w_tag("p")][1:]
+        for label in labels:
+            self.assertIsNotNone(label.find(f"./{w_tag('pPr')}/{w_tag('pageBreakBefore')}"))
+            self.assertEqual(
+                label.find(f"./{w_tag('pPr')}/{w_tag('pStyle')}").get(w_tag("val")),
+                "TableCaption",
+            )
 
     def test_stretch_to_page_width(self) -> None:
         table = ET.fromstring(
