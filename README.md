@@ -240,11 +240,15 @@ Pandoc's Markdown table caption is written immediately **above** the table:
 | A        | 42       |
 ```
 
-The result is prefixed `Таблиця 1.1 — ...`; the first row is marked to repeat
-when a table crosses a page. Word can repeat the header, but the converter does
-not split a table itself or automatically add `Продовження таблиці ...` to
-every continuation page. Complex merged cells and explicit continuation labels
-need final editor work.
+The result is prefixed `Таблиця 1.1 — ...`. When LibreOffice is available, a
+captioned table that crosses a page is split into separate tables, one per
+page. Each part repeats the header row; middle parts start with
+`Продовження таблиці 1.1` and the last part with `Кінець таблиці 1.1`, while
+the caption appears only above the first part. A row is never split across
+pages. The split follows LibreOffice's pagination, so re-check it after
+editing. Without LibreOffice (or with `--no-update-toc`), the first row is
+only marked to repeat on each page. Tables with merged first-column cells are
+not split.
 
 ### Formulas
 

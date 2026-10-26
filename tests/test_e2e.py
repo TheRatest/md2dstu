@@ -548,6 +548,51 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                 is not None
             )
 
+    @unittest.skipUnless(
+        LibreOfficeService.is_libreoffice_available()
+        and LibreOfficeService.is_uno_available(),
+        "LibreOffice with Python UNO is required for layout fixes",
+    )
+    def test_cross_page_table_is_split_with_continuation_labels(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-split-") as temp_dir:
+            source = Path(temp_dir) / "split.md"
+            rows = "".join(f"| {index} | Значення {index} |\n" for index in range(70))
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n: Велика таблиця\n\n'
+                f"| № | Значення |\n|---|---|\n{rows}\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "split.docx"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main([str(source), "-o", str(output_docx)])
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                body = ET.fromstring(docx_zip.read("word/document.xml")).find(
+                    w_tag("body")
+                )
+
+            def text_of(element: ET.Element) -> str:
+                return "".join(t.text or "" for t in element.iter(w_tag("t")))
+
+            children = list(body)
+            # The first table is the title-page details block.
+            tables = [child for child in children if child.tag == w_tag("tbl")][1:]
+            self.assertGreaterEqual(len(tables), 3)
+            labels = [text_of(children[children.index(t) - 1]) for t in tables]
+            self.assertEqual(labels[0], "Таблиця 1.1 – Велика таблиця")
+            self.assertEqual(
+                labels[1:-1], ["Продовження таблиці 1.1"] * (len(tables) - 2)
+            )
+            self.assertEqual(labels[-1], "Кінець таблиці 1.1")
+
+            data_rows = []
+            for table in tables:
+                rows = table.findall(w_tag("tr"))
+                self.assertEqual(text_of(rows[0]), "№Значення")
+                data_rows.extend(text_of(row) for row in rows[1:])
+            self.assertEqual(data_rows, [f"{i}Значення {i}" for i in range(70)])
+
 
 if __name__ == "__main__":
     unittest.main()
