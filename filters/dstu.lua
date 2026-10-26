@@ -5,6 +5,9 @@ local figures = 0
 local tables = 0
 local appendix = nil
 local numbering = "section"
+-- Caption numbers in document order and by "fig:"/"tbl:" identifier, for @fig/@tbl.
+local numbered = {fig = {}, tbl = {}}
+local labels = {}
 
 local structural = {
   ["реферат"] = true,
@@ -290,9 +293,28 @@ local function prefix_caption(caption, prefix)
   return caption
 end
 
+-- Pandoc 3.1 keeps "{#tbl:id}" at the end of a table caption as plain text.
+local function take_caption_id(caption)
+  local last_block = caption.long[#caption.long]
+  if last_block.t ~= "Plain" and last_block.t ~= "Para" then return nil end
+  local inlines = last_block.content
+  local last = inlines[#inlines]
+  local id = last and last.t == "Str" and last.text:match("^{#([^}%s]+)}$")
+  if not id then return nil end
+  inlines:remove(#inlines)
+  if #inlines > 0 and inlines[#inlines].t == "Space" then inlines:remove(#inlines) end
+  return id
+end
+
+local function remember(kind, number, id)
+  table.insert(numbered[kind], number)
+  if id and id ~= "" then labels[id] = number end
+end
+
 function Figure(el)
   if el.caption and el.caption.long and #el.caption.long > 0 then
     local number = caption_number("figure")
+    remember("fig", number, el.identifier)
     el.caption = prefix_caption(el.caption, "Рисунок " .. number .. " –")
   end
   return {el, styled_para({}, "Figure Spacer")}
@@ -300,7 +322,9 @@ end
 
 function Table(el)
   if el.caption and el.caption.long and #el.caption.long > 0 then
+    local id = take_caption_id(el.caption)
     local number = caption_number("table")
+    remember("tbl", number, id or el.identifier)
     el.caption = prefix_caption(el.caption, "Таблиця " .. number .. " –")
   end
   -- A dedicated blank 1.5-spaced paragraph guarantees separation from the
@@ -413,9 +437,77 @@ function Pandoc(doc)
   return doc
 end
 
+local function reference_target(cite)
+  if #cite.citations ~= 1 then return nil end
+  local id = cite.citations[1].id
+  local kind = id:match("^(fig)$") or id:match("^(tbl)$") or id:match("^(fig):") or id:match("^(tbl):")
+  return kind, id
+end
+
+local function captioned(el)
+  return el.caption and el.caption.long and #el.caption.long > 0
+end
+
+-- Replace @fig:id / @tbl:id with the labelled number. Anonymous @fig / @tbl
+-- take the next figure/table not yet taken by an earlier anonymous reference;
+-- with none ahead, the nearest previous one.
+local function resolve_references(doc)
+  local events, seen = {}, {fig = 0, tbl = 0}
+  local function item(kind)
+    seen[kind] = seen[kind] + 1
+    table.insert(events, {item = kind, number = numbered[kind][seen[kind]]})
+  end
+  doc:walk({
+    traverse = "topdown",
+    Figure = function(el) if captioned(el) then item("fig") end end,
+    Table = function(el) if captioned(el) then item("tbl") end end,
+    Cite = function(el)
+      local kind, id = reference_target(el)
+      if kind then table.insert(events, {ref = kind, id = id}) end
+    end,
+  })
+
+  local resolved = {}
+  for i, event in ipairs(events) do
+    if event.ref then
+      local number = labels[event.id]
+      if event.id == event.ref then
+        for j = i + 1, #events do
+          if events[j].item == event.ref and not events[j].taken then
+            events[j].taken = true
+            number = events[j].number
+            break
+          end
+        end
+        for j = i - 1, 1, -1 do
+          if number then break end
+          if events[j].item == event.ref then number = events[j].number end
+        end
+      end
+      if not number then
+        io.stderr:write("[WARNING] md2dstu: no figure/table for reference @" .. event.id .. "\n")
+        number = "??"
+      end
+      table.insert(resolved, number)
+    end
+  end
+
+  local index = 0
+  return doc:walk({
+    traverse = "topdown",
+    Cite = function(el)
+      if reference_target(el) then
+        index = index + 1
+        return pandoc.Str(resolved[index])
+      end
+    end,
+  })
+end
+
 -- Metadata must be read in a first pass; Pandoc otherwise visits document
 -- blocks before calling Meta in a single Lua-filter pass.
 return {
   {Meta = Meta},
   {Header = Header, Figure = Figure, Table = Table, CodeBlock = CodeBlock, Div = Div, Pandoc = Pandoc},
+  {Pandoc = resolve_references},
 }

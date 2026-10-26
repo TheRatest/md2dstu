@@ -217,10 +217,42 @@ with repeatable `--resource-path` options:
 
 Pandoc treats an image that is alone in a paragraph as a figure. `md2dstu`
 centers it and prefixes its caption, for example,
-`Рисунок 2.1 — Структурна схема`. Refer to it in prose yourself; automatic
-semantic cross-references are not inferred. Prefer PNG/JPEG/SVG, use readable
+`Рисунок 2.1 — Структурна схема`. Prefer PNG/JPEG/SVG, use readable
 resolution, and keep the image within the printable width (about 17.5 cm with
 the default margins).
+
+#### Figure and table references
+
+Write `@fig` or `@tbl` where the number belongs; it is replaced by the
+generated number:
+
+```markdown
+Схему наведено на рисунку @fig, а результати — у таблиці @tbl.
+
+![Структурна схема](images/scheme.png)
+
+: Результати вимірювань
+
+| Показник | Значення |
+|----------|---------:|
+| A        | 42       |
+```
+
+An anonymous `@fig` / `@tbl` takes the next figure/table that no earlier
+anonymous reference has taken, so several references written before their
+figures are numbered in order. When none is left ahead, it points to the
+nearest previous one. To refer to a specific figure or table (for example,
+again later in the text), label it and use the label:
+
+```markdown
+![Структурна схема](images/scheme.png){#fig:scheme}
+
+: Результати вимірювань {#tbl:results}
+
+Як показано на рисунку @fig:scheme і в таблиці @tbl:results, …
+```
+
+An unknown label becomes `??` and adds a validation warning.
 
 "Attachments" can mean two different things:
 
@@ -239,7 +271,8 @@ the default margins).
 
 ### Tables
 
-Pandoc's Markdown table caption is written immediately **above** the table:
+Pandoc's Markdown table caption is written immediately **above** the table
+(refer to it with `@tbl`, see [Figure and table references](#figure-and-table-references)):
 
 ```markdown
 : Результати вимірювань

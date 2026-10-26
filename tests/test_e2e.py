@@ -669,6 +669,48 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                 data_rows.extend(text_of(row) for row in rows[1:])
             self.assertEqual(data_rows, [f"{i}Значення {i}" for i in range(70)])
 
+    def test_figure_and_table_references_use_generated_numbers(self) -> None:
+        image = PROJECT_ROOT / "examples" / "bombyx-mori.png"
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-ref-") as temp_dir:
+            source = Path(temp_dir) / "ref.md"
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n'
+                "Рисунки @fig і @fig, таблиця @tbl:res, знову @fig:b.\n\n"
+                f"![Перший]({image})\n\n![Другий]({image}){{#fig:b}}\n\n"
+                "Після рисунків @fig.\n\n# ДРУГИЙ\n\n"
+                ": Дані {#tbl:res}\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n"
+                "Таблиця @tbl. Невідомий @fig:nope.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "ref.docx"
+            report_file = Path(temp_dir) / "ref.txt"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main(
+                    [
+                        str(source),
+                        "-o",
+                        str(output_docx),
+                        "--no-update-toc",
+                        "--report",
+                        str(report_file),
+                    ]
+                )
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                root = ET.fromstring(docx_zip.read("word/document.xml"))
+            paragraphs = [
+                "".join(t.text or "" for t in p.iter(w_tag("t")))
+                for p in root.iter(w_tag("p"))
+            ]
+            self.assertIn("Рисунки 1.1 і 1.2, таблиця 2.1, знову 1.2.", paragraphs)
+            self.assertIn("Після рисунків 1.2.", paragraphs)
+            self.assertIn("Таблиця 2.1 – Дані", paragraphs)
+            self.assertIn("Таблиця 2.1. Невідомий ??.", paragraphs)
+            report = report_file.read_text(encoding="utf-8")
+            self.assertIn("no figure/table for reference @fig:nope", report)
+            self.assertNotIn("Citation", report)
+
 
 if __name__ == "__main__":
     unittest.main()

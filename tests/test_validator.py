@@ -127,6 +127,19 @@ class ValidatorTestCase(unittest.TestCase):
             )
         )
 
+    def test_figure_and_table_references_are_not_citations(self) -> None:
+        metadata = DocumentMetadata(title="Звіт")
+        ast_data = {
+            "blocks": [
+                {"t": "Cite", "c": [[{"citationId": cid}], []]}
+                for cid in ("fig", "tbl", "fig:scheme", "tbl:results")
+            ]
+        }
+
+        report = self.validator.validate(ast_data, metadata)
+
+        self.assertFalse(any("Citation" in error for error in report.errors))
+
     def test_citation_without_matching_record_produces_error(self) -> None:
         metadata = DocumentMetadata(title="Звіт", references=[])
         ast_data = {
