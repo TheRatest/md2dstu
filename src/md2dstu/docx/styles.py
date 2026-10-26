@@ -228,6 +228,51 @@ class StyleModifier:
             spacing.set(w_tag("after"), "0")
 
     @staticmethod
+    def disable_proofing(root: ET.Element) -> None:
+        """Mark all text as language "None" so editors skip spell checking.
+
+        Works on styles.xml and document.xml roots: every explicit w:lang is
+        dropped and, in styles.xml, docDefaults get "zxx" (LibreOffice's
+        "[None]") plus w:noProof (Word's "Do not check spelling").
+        """
+        for parent in list(root.iter()):
+            for language in parent.findall(w_tag("lang")):
+                parent.remove(language)
+
+        defaults = root.find(f"./{w_tag('docDefaults')}")
+        if defaults is None:
+            return
+        rpr_default = defaults.find(w_tag("rPrDefault"))
+        if rpr_default is None:
+            rpr_default = ET.Element(w_tag("rPrDefault"))
+            defaults.insert(0, rpr_default)
+        run_properties = rpr_default.find(w_tag("rPr"))
+        if run_properties is None:
+            run_properties = ET.SubElement(rpr_default, w_tag("rPr"))
+
+        if run_properties.find(w_tag("noProof")) is None:
+            # Schema order: noProof precedes color, size, and later properties.
+            later = {
+                w_tag(name)
+                for name in (
+                    "snapToGrid vanish webHidden color spacing w kern position sz "
+                    "szCs highlight u effect bdr shd fitText vertAlign rtl cs em "
+                    "lang eastAsianLayout specVanish oMath"
+                ).split()
+            }
+            position = next(
+                (i for i, child in enumerate(run_properties) if child.tag in later),
+                len(run_properties),
+            )
+            run_properties.insert(position, ET.Element(w_tag("noProof")))
+
+        ET.SubElement(
+            run_properties,
+            w_tag("lang"),
+            {w_tag("val"): "zxx", w_tag("eastAsia"): "zxx", w_tag("bidi"): "zxx"},
+        )
+
+    @staticmethod
     def normalize_toc_styles(styles_path: Path) -> None:
         """Ensure TOC1..TOC3 have standard DSTU tab stops, line spacing, and fonts."""
         register_openxml_namespaces()
