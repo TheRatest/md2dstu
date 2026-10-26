@@ -48,6 +48,7 @@ class DocxPostProcessor:
                 styles_tree = ET.parse(styles_path)
                 styles_root = styles_tree.getroot()
                 normalize_code_styles(styles_root)
+                StyleModifier.disable_proofing(styles_root)
                 if self.alt_heading_style:
                     StyleModifier.apply_alternative_heading_style(styles_root)
                 styles_tree.write(styles_path, encoding="UTF-8", xml_declaration=True)
@@ -68,6 +69,7 @@ class DocxPostProcessor:
                 doc_tree = ET.parse(document_path)
                 doc_root = doc_tree.getroot()
 
+                StyleModifier.disable_proofing(doc_root)
                 NumberingModifier.normalize_list_paragraphs(doc_root)
                 if numbering_path.is_file():
                     NumberingModifier.apply_ukrainian_second_level_markers(

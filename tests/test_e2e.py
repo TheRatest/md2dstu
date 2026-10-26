@@ -503,6 +503,35 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
 
             self.assertEqual(document.count('w:val="FigureSpacer"'), 1)
 
+    def test_text_language_is_none_to_skip_spellcheck(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-lang-") as temp_dir:
+            source = Path(temp_dir) / "lang.md"
+            source.write_text(
+                '---\ntitle: "T"\nlang: uk-UA\n---\n\n# РОЗДІЛ\n\n'
+                "Текст [English]{lang=en-US}.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "lang.docx"
+
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main(
+                    [str(source), "-o", str(output_docx), "--no-update-toc"]
+                )
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                styles = ET.fromstring(docx_zip.read("word/styles.xml"))
+                document = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            defaults = styles.find(
+                f"./{w_tag('docDefaults')}/{w_tag('rPrDefault')}/{w_tag('rPr')}"
+            )
+            self.assertIsNotNone(defaults.find(w_tag("noProof")))
+            languages = list(styles.iter(w_tag("lang")))
+            self.assertEqual(len(languages), 1)
+            self.assertEqual(languages[0].get(w_tag("val")), "zxx")
+            self.assertEqual(list(document.iter(w_tag("lang"))), [])
+
 
 if __name__ == "__main__":
     unittest.main()

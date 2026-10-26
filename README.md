@@ -150,6 +150,10 @@ blank line, then leaves the authored abstract text below. Keywords are never
 inferred or invented. The `РЕФЕРАТ` heading itself is omitted from the
 generated contents.
 
+`lang` only localizes generated bibliography terms. All document text is
+marked as language "None" (`zxx` plus `w:noProof`), so Word and LibreOffice
+do not spell-check it; check spelling in the source file instead.
+
 The `student` and `teacher` maps form a two-column borderless title-page table:
 student details on the left and teacher details on the right. `title` in each
 map is the person's role/position line, not the report's top-level `title`.
