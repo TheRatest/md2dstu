@@ -503,6 +503,58 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
 
             self.assertEqual(document.count('w:val="FigureSpacer"'), 1)
 
+    def test_appendix_title_follows_label_with_spacing_after(self) -> None:
+        image = PROJECT_ROOT / "examples" / "bombyx-mori.png"
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-app-") as temp_dir:
+            source = Path(temp_dir) / "app.md"
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# ВИСНОВКИ {-}\n\nТекст.\n\n'
+                "# ДОДАТОК А {.appendix}\n\n## Перша назва\n\nТекст.\n\n"
+                f"![Схема]({image})\n\n"
+                "# ДОДАТОК Б. Друга назва {.appendix}\n\n## Підрозділ\n\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "app.docx"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main(
+                    [str(source), "-o", str(output_docx), "--no-update-toc", "-A"]
+                )
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                root = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            def style_of(paragraph: ET.Element) -> str | None:
+                style = paragraph.find(f"./{w_tag('pPr')}/{w_tag('pStyle')}")
+                return style.get(w_tag("val")) if style is not None else None
+
+            paragraphs = list(root.iter(w_tag("p")))
+            appendices = [
+                p
+                for p in paragraphs
+                if style_of(p) == "Heading1"
+                and "".join(t.text or "" for t in p.iter(w_tag("t"))).startswith(
+                    "ДОДАТОК"
+                )
+            ]
+            self.assertEqual(
+                ["".join(t.text or "" for t in p.iter(w_tag("t"))) for p in appendices],
+                ["ДОДАТОК АПерша назва", "ДОДАТОК БДруга назва"],
+            )
+            for appendix in appendices:
+                self.assertIsNotNone(appendix.find(f"./{w_tag('r')}/{w_tag('br')}"))
+                spacing = appendix.find(f"./{w_tag('pPr')}/{w_tag('spacing')}")
+                self.assertEqual(spacing.get(w_tag("after")), "360")
+
+            headings2 = [
+                "".join(t.text or "" for t in p.iter(w_tag("t")))
+                for p in paragraphs
+                if style_of(p) == "Heading2"
+            ]
+            self.assertEqual(headings2, ["Підрозділ"])
+            document_text = "".join(t.text or "" for t in root.iter(w_tag("t")))
+            self.assertIn("Рисунок А.1 –", document_text)
+
 
 if __name__ == "__main__":
     unittest.main()

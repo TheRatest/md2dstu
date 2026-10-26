@@ -95,6 +95,9 @@ FONT_SIZE_CODE_HALF_POINTS = points_to_half_points(11)  # 22 (11 pt)
 LINE_SPACING_1_5 = 360
 LINE_SPACING_SINGLE = 240
 
+# Spacing after an appendix title (≈0.64 cm, same as default heading spacing)
+APPENDIX_TITLE_SPACING_AFTER_DXA = 360
+
 # Table border size (1 pt = 8 eighths of a point)
 BORDER_SIZE_ONE_POINT = points_to_eighths(1)  # 8
 

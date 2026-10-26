@@ -198,6 +198,32 @@ function Meta(meta)
   return meta
 end
 
+-- Lua patterns are byte-based, so match the uppercased UTF-8 text literally
+-- and capture one whole character as the letter.
+local function appendix_letter_of(visible)
+  local upper = pandoc.text.upper(visible) .. " "
+  for _, word in ipairs({"ДОДАТОК", "APPENDIX"}) do
+    local letter = upper:match("^" .. word .. "%s+(" .. utf8.charpattern .. ")[%s%.:]")
+    if letter then return letter end
+  end
+end
+
+-- "ДОДАТОК А. Назва" -> "ДОДАТОК А" <line break> "Назва": DSTU puts the
+-- appendix title on the line right below the label.
+local function split_appendix_title(content)
+  if #content < 4 or content[3].t ~= "Str" then return content end
+  local label = content[3].text:gsub("[%.:]+$", "")
+  local rest = {}
+  for i = 4, #content do table.insert(rest, content[i]) end
+  while #rest > 0 and (rest[1].t == "Space" or (rest[1].t == "Str" and rest[1].text:match("^[%-–—]+$"))) do
+    table.remove(rest, 1)
+  end
+  if #rest == 0 then return content end
+  local result = {content[1], content[2], pandoc.Str(label), pandoc.LineBreak()}
+  for _, inline in ipairs(rest) do table.insert(result, inline) end
+  return pandoc.Inlines(result)
+end
+
 function Header(el)
   local heading = normalize(el.content)
   local visible = text(el.content)
@@ -206,8 +232,7 @@ function Header(el)
     if last and last.t == "Str" then last.text = last.text:gsub("%.$", "") end
   end
 
-  local appendix_letter = visible:match("^[Дд][Оо][Дд][Аа][Тт][Оо][Кк]%s+([А-ЯA-Z])")
-    or visible:match("^[Aa][Pp][Pp][Ee][Nn][Dd][Ii][Xx]%s+([A-Z])")
+  local appendix_letter = appendix_letter_of(visible)
   if numbering == "none" then
     el.classes:insert("unnumbered")
     if heading == "реферат" or heading == "abstract" then
@@ -217,6 +242,7 @@ function Header(el)
     appendix = appendix_letter or el.attributes.label or ""
     figures, tables = 0, 0
     el.classes:insert("unnumbered")
+    if appendix_letter then el.content = split_appendix_title(el.content) end
   elseif structural[heading] then
     el.classes:insert("unnumbered")
     if heading == "реферат" or heading == "abstract" then
@@ -309,6 +335,16 @@ function Div(el)
 end
 
 function Pandoc(doc)
+  -- "# ДОДАТОК А" directly followed by a heading: that heading is the title.
+  for i = #doc.blocks - 1, 1, -1 do
+    local label, title = doc.blocks[i], doc.blocks[i + 1]
+    if label.t == "Header" and label.level == 1 and title.t == "Header"
+      and appendix_letter_of(text(label.content)) and #label.content <= 3 then
+      label.content:insert(pandoc.LineBreak())
+      label.content:extend(title.content)
+      doc.blocks:remove(i + 1)
+    end
+  end
   -- A heading already has its own space before; a spacer there doubles the gap.
   for i = #doc.blocks - 1, 1, -1 do
     local style = doc.blocks[i].t == "Div" and doc.blocks[i].attributes["custom-style"]

@@ -79,6 +79,7 @@ class DocxPostProcessor:
                         doc_root, styles_root
                     )
                 DocumentModifier.collapse_adjacent_heading_spacing(doc_root)
+                DocumentModifier.set_appendix_title_spacing(doc_root)
                 DocumentModifier.position_toc_after_title_page(doc_root)
 
                 for table in doc_root.iter(w_tag("tbl")):
