@@ -109,7 +109,9 @@ reported in the validation report without failing conversion.
 Heading 1 and Heading 3–9 keep their reference-document styling, while Heading
 2 remains regular weight as before. `--alt-heading-style` / `-A` removes
 before/after spacing from Heading 1–9 and puts one blank line before headings
-preceded by same-page content (page breaks are respected). Both options also
+preceded by same-page content (page breaks are respected). When LibreOffice is
+available, a blank line that the layout pushes to the top of a new page is
+removed and the heading starts that page instead. Both options also
 apply when an external `--reference-doc` is supplied.
 
 ## Source structure
@@ -280,11 +282,15 @@ Pandoc's Markdown table caption is written immediately **above** the table
 | A        | 42       |
 ```
 
-The result is prefixed `Таблиця 1.1 — ...`; the first row is marked to repeat
-when a table crosses a page. Word can repeat the header, but the converter does
-not split a table itself or automatically add `Продовження таблиці ...` to
-every continuation page. Complex merged cells and explicit continuation labels
-need final editor work.
+The result is prefixed `Таблиця 1.1 — ...`. When LibreOffice is available, a
+captioned table that crosses a page is split into separate tables, one per
+page. Each part repeats the header row; middle parts start with
+`Продовження таблиці 1.1` and the last part with `Кінець таблиці 1.1`, while
+the caption appears only above the first part. A row is never split across
+pages. The split follows LibreOffice's pagination, so re-check it after
+editing. Without LibreOffice (or with `--no-update-toc`), the first row is
+only marked to repeat on each page. Tables with merged first-column cells are
+not split.
 
 ### Formulas
 
@@ -413,8 +419,9 @@ use `--reference-doc` or adjust the final DOCX.
 
 With `toc: true` or `--toc`, Pandoc inserts a Word TOC field. When LibreOffice
 and its Python/UNO bindings are installed, `md2dstu` opens the temporary DOCX
-headlessly and populates the contents with current headings and page numbers.
-Use `--no-update-toc` to skip that step. Page numbers can change after editing,
+headlessly, applies page-dependent layout fixes, and populates the contents
+with current headings and page numbers. Use `--no-update-toc` to skip that
+step. Page numbers can change after editing,
 so refresh the contents again before final export:
 
 - **Microsoft Word:** select the contents, choose **Update Table → Update

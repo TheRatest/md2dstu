@@ -13,6 +13,7 @@ from xml.etree import ElementTree as ET
 from md2dstu.cli import main
 from md2dstu.constants import PROJECT_ROOT
 from md2dstu.docx.namespaces import w_tag
+from md2dstu.libreoffice import LibreOfficeService
 
 
 class EndToEndIntegrationTestCase(unittest.TestCase):
@@ -503,6 +504,50 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
 
             self.assertEqual(document.count('w:val="FigureSpacer"'), 1)
 
+    @unittest.skipUnless(
+        LibreOfficeService.is_libreoffice_available()
+        and LibreOfficeService.is_uno_available(),
+        "LibreOffice with Python UNO is required for layout fixes",
+    )
+    def test_alt_heading_style_drops_blank_line_pushed_to_page_top(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-top-") as temp_dir:
+            source = Path(temp_dir) / "top.md"
+            # Heading 1 plus 29 one-line paragraphs fill page 2 exactly, so the
+            # blank line before the next heading lands at the top of page 3.
+            lines = "".join(f"Рядок {index}.\n\n" for index in range(29))
+            source.write_text(
+                f'---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n{lines}'
+                "## Підрозділ\n\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "top.docx"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main([str(source), "-o", str(output_docx), "-A"])
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                body = ET.fromstring(docx_zip.read("word/document.xml")).find(
+                    w_tag("body")
+                )
+
+            paragraphs = list(body.iter(w_tag("p")))
+            heading_index = next(
+                index
+                for index, paragraph in enumerate(paragraphs)
+                if "Підрозділ" in "".join(t.text or "" for t in paragraph.iter(w_tag("t")))
+            )
+            before = paragraphs[heading_index - 1]
+            self.assertEqual(
+                "".join(t.text or "" for t in before.iter(w_tag("t"))), "Рядок 28."
+            )
+            self.assertTrue(
+                any(br.get(w_tag("type")) == "page" for br in before.iter(w_tag("br")))
+                or paragraphs[heading_index].find(
+                    f"./{w_tag('pPr')}/{w_tag('pageBreakBefore')}"
+                )
+                is not None
+            )
+
     def test_appendix_title_follows_label_with_spacing_after(self) -> None:
         image = PROJECT_ROOT / "examples" / "bombyx-mori.png"
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-app-") as temp_dir:
@@ -583,6 +628,46 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
             self.assertEqual(len(languages), 1)
             self.assertEqual(languages[0].get(w_tag("val")), "zxx")
             self.assertEqual(list(document.iter(w_tag("lang"))), [])
+
+    def test_cross_page_table_is_split_with_continuation_labels(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-split-") as temp_dir:
+            source = Path(temp_dir) / "split.md"
+            rows = "".join(f"| {index} | Значення {index} |\n" for index in range(70))
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n: Велика таблиця\n\n'
+                f"| № | Значення |\n|---|---|\n{rows}\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "split.docx"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main([str(source), "-o", str(output_docx)])
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                body = ET.fromstring(docx_zip.read("word/document.xml")).find(
+                    w_tag("body")
+                )
+
+            def text_of(element: ET.Element) -> str:
+                return "".join(t.text or "" for t in element.iter(w_tag("t")))
+
+            children = list(body)
+            # The first table is the title-page details block.
+            tables = [child for child in children if child.tag == w_tag("tbl")][1:]
+            self.assertGreaterEqual(len(tables), 3)
+            labels = [text_of(children[children.index(t) - 1]) for t in tables]
+            self.assertEqual(labels[0], "Таблиця 1.1 – Велика таблиця")
+            self.assertEqual(
+                labels[1:-1], ["Продовження таблиці 1.1"] * (len(tables) - 2)
+            )
+            self.assertEqual(labels[-1], "Кінець таблиці 1.1")
+
+            data_rows = []
+            for table in tables:
+                rows = table.findall(w_tag("tr"))
+                self.assertEqual(text_of(rows[0]), "№Значення")
+                data_rows.extend(text_of(row) for row in rows[1:])
+            self.assertEqual(data_rows, [f"{i}Значення {i}" for i in range(70)])
 
     def test_figure_and_table_references_use_generated_numbers(self) -> None:
         image = PROJECT_ROOT / "examples" / "bombyx-mori.png"

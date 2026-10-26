@@ -1,4 +1,4 @@
-"""Headless LibreOffice service for Table of Contents updates and format conversion."""
+"""Headless LibreOffice service for layout-dependent fixes, TOC updates, and format conversion."""
 
 from __future__ import annotations
 
@@ -10,9 +10,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+from md2dstu.docx.tables import split_table
 from md2dstu.docx.toc_casing import apply_sentence_case_to_toc
 from md2dstu.exceptions import ConversionError, ExternalToolError
 
@@ -69,9 +71,83 @@ class LibreOfficeService:
         except ImportError:
             return False
 
+    @staticmethod
+    def remove_blank_lines_at_page_top(document: Any) -> None:
+        """Drop an empty paragraph that a page break pushed to the top of a page above a heading.
+
+        The heading gets an explicit page break instead, so it stays at the top of
+        that page and the post-processor does not re-insert the blank line.
+        """
+        from com.sun.star.style.BreakType import PAGE_BEFORE
+
+        text = document.getText()
+        view_cursor = document.getCurrentController().getViewCursor()
+        enumeration = text.createEnumeration()
+        paragraphs = []
+        while enumeration.hasMoreElements():
+            paragraphs.append(enumeration.nextElement())
+
+        # Each removal shifts later content up, so query the live layout one by one.
+        for blank, heading in pairwise(paragraphs):
+            if not (
+                blank.supportsService("com.sun.star.text.Paragraph")
+                and heading.supportsService("com.sun.star.text.Paragraph")
+                and heading.OutlineLevel > 0
+                and not blank.getString().strip()
+            ):
+                continue
+            view_cursor.gotoRange(blank.getStart(), False)
+            view_cursor.jumpToStartOfPage()
+            if text.compareRegionStarts(view_cursor, blank.getStart()) != 0:
+                continue
+            heading.BreakType = PAGE_BEFORE
+            blank.dispose()
+
+    @staticmethod
+    def find_table_page_break(
+        document: Any, first_table: int
+    ) -> tuple[int, int] | None:
+        """Return (table index, row index) of the first row not on its table's first page.
+
+        Only body tables from first_table on are checked. A table whose first
+        data row already leaves the first page is not reported: there is nothing
+        to split off.
+        """
+        text = document.getText()
+        view_cursor = document.getCurrentController().getViewCursor()
+        enumeration = text.createEnumeration()
+        tables = []
+        while enumeration.hasMoreElements():
+            element = enumeration.nextElement()
+            if element.supportsService("com.sun.star.text.TextTable"):
+                tables.append(element)
+
+        def page_of(text_range: Any) -> int:
+            view_cursor.gotoRange(text_range, False)
+            return view_cursor.getPage()
+
+        for table_index in range(first_table, len(tables)):
+            table = tables[table_index]
+            columns = table.getColumns().getCount()
+            try:
+                first_page = page_of(table.getCellByPosition(0, 0).getStart())
+                for row in range(1, table.getRows().getCount()):
+                    # A row split across pages counts as leaving the page.
+                    if any(
+                        page_of(table.getCellByPosition(column, row).getEnd())
+                        != first_page
+                        for column in range(columns)
+                    ):
+                        if row >= 2:
+                            return table_index, row
+                        break
+            except Exception:  # noqa: BLE001, S112 - merged cells have no position
+                continue
+        return None
+
     @classmethod
-    def update_table_of_contents(cls, docx_path: Path, working_dir: Path) -> None:
-        """Populate the automatic Table of Contents and page numbers using headless LibreOffice."""
+    def finalize_layout(cls, docx_path: Path, working_dir: Path) -> None:
+        """Apply page-dependent fixes and populate the Table of Contents using headless LibreOffice."""
         cls._add_uno_module_path()
         try:
             import uno
@@ -148,17 +224,35 @@ class LibreOfficeService:
                 make_property("Hidden", True),
                 make_property("ReadOnly", False),
             )
-            document = desktop.loadComponentFromURL(
-                docx_path.resolve().as_uri(),
-                "_blank",
-                0,
-                load_properties,
-            )
-            if document is None:
-                raise ExternalToolError(
-                    f"LibreOffice could not open generated file {docx_path.name} to populate TOC"
-                )
 
+            def load() -> Any:
+                loaded = desktop.loadComponentFromURL(
+                    docx_path.resolve().as_uri(),
+                    "_blank",
+                    0,
+                    load_properties,
+                )
+                if loaded is None:
+                    raise ExternalToolError(
+                        f"LibreOffice could not open generated file {docx_path.name} to populate TOC"
+                    )
+                return loaded
+
+            document = load()
+
+            # Each split changes the layout after it, so re-measure after every one.
+            first_table = 0
+            while (
+                found := cls.find_table_page_break(document, first_table)
+            ) is not None:
+                table_index, row_index = found
+                document.close(True)
+                document = None
+                split_table(docx_path, table_index, row_index)
+                first_table = table_index + 1
+                document = load()
+
+            cls.remove_blank_lines_at_page_top(document)
             indexes = document.getDocumentIndexes()
             for index in range(indexes.getCount()):
                 table_of_contents = indexes.getByIndex(index)
