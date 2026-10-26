@@ -23,6 +23,8 @@ class DocumentValidator:
         self,
         ast_data: dict[str, Any],
         metadata: DocumentMetadata,
+        *,
+        external_references: list[dict[str, Any]] | None = None,
     ) -> ValidationReport:
         """Run all DSTU compliance checks on the extracted AST and metadata."""
         report = ValidationReport()
@@ -36,7 +38,12 @@ class DocumentValidator:
         self._validate_tables(nodes, report)
         self._validate_formulae(nodes, report)
         self._validate_appendices(headings, report)
-        self._validate_citations(nodes, metadata, report)
+        self._validate_citations(
+            nodes,
+            metadata,
+            report,
+            external_references=external_references or [],
+        )
         self._record_applied_settings(report)
 
         return report
@@ -252,6 +259,8 @@ class DocumentValidator:
         nodes: list[dict[str, Any]],
         metadata: DocumentMetadata,
         report: ValidationReport,
+        *,
+        external_references: list[dict[str, Any]],
     ) -> None:
         citations = {
             item["citationId"]
@@ -263,6 +272,108 @@ class DocumentValidator:
         if citations and not metadata.bibliography and not metadata.references:
             report.add_error(
                 "Citations are present, but no 'bibliography' file or inline 'references' metadata was supplied"
+            )
+
+        references = [
+            reference
+            for reference in (
+                metadata.references
+                if isinstance(metadata.references, list)
+                else []
+            )
+            if isinstance(reference, dict)
+        ]
+        references.extend(external_references)
+        references_by_id = {
+            str(reference.get("id")): reference
+            for reference in references
+            if reference.get("id")
+        }
+
+        for citation_id in sorted(citations - references_by_id.keys()):
+            report.add_error(
+                f"Citation has no matching bibliography record: {citation_id}"
+            )
+
+        if citations and metadata.bibliography and not external_references:
+            report.add_warning(
+                "External bibliography records could not be inspected for metadata completeness"
+            )
+
+        for citation_id in sorted(citations & references_by_id.keys()):
+            self._validate_reference_metadata(
+                citation_id,
+                references_by_id[citation_id],
+                report,
+            )
+
+        if metadata.references and not citations:
+            report.add_warning(
+                "Bibliography records were supplied, but no citations were found in the document"
+            )
+
+    @staticmethod
+    def _validate_reference_metadata(
+        citation_id: str,
+        reference: dict[str, Any],
+        report: ValidationReport,
+    ) -> None:
+        title = str(reference.get("title", "")).strip()
+        if not title:
+            report.add_warning(
+                f"Bibliography record '{citation_id}' is missing required metadata: title"
+            )
+
+        if not str(reference.get("type", "")).strip():
+            report.add_warning(
+                f"Bibliography record '{citation_id}' is missing required metadata: type"
+            )
+
+        source_type = str(reference.get("type", "")).strip()
+        if source_type in {
+            "article-journal",
+            "article-magazine",
+            "article-newspaper",
+            "chapter",
+            "entry-dictionary",
+            "entry-encyclopedia",
+            "paper-conference",
+        } and not str(reference.get("container-title", "")).strip():
+            report.add_warning(
+                f"Bibliography record '{citation_id}' is missing required metadata: container-title"
+            )
+
+        if source_type == "paper-conference" and not (
+            str(reference.get("event-title", "")).strip()
+            or str(reference.get("container-title", "")).strip()
+        ):
+            report.add_warning(
+                f"Bibliography record '{citation_id}' is missing conference or proceedings metadata"
+            )
+
+        if source_type in {"book", "report", "thesis", "manuscript"}:
+            if not reference.get("issued"):
+                report.add_warning(
+                    f"Bibliography record '{citation_id}' is missing required metadata: issued year"
+                )
+            if not (
+                str(reference.get("publisher", "")).strip()
+                or str(reference.get("institution", "")).strip()
+                or str(reference.get("authority", "")).strip()
+            ):
+                report.add_warning(
+                    f"Bibliography record '{citation_id}' is missing publisher or institution metadata"
+                )
+
+        url = str(reference.get("URL", "")).strip()
+        doi = str(reference.get("DOI", "")).strip()
+        if source_type in {"webpage", "post-weblog", "post"} and not (url or doi):
+            report.add_warning(
+                f"Bibliography record '{citation_id}' is missing required metadata: URL or DOI"
+            )
+        if url and not reference.get("accessed"):
+            report.add_warning(
+                f"Bibliography record '{citation_id}' has a URL but no access date"
             )
 
     def _record_applied_settings(self, report: ValidationReport) -> None:
