@@ -548,11 +548,87 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                 is not None
             )
 
-    @unittest.skipUnless(
-        LibreOfficeService.is_libreoffice_available()
-        and LibreOfficeService.is_uno_available(),
-        "LibreOffice with Python UNO is required for layout fixes",
-    )
+    def test_appendix_title_follows_label_with_spacing_after(self) -> None:
+        image = PROJECT_ROOT / "examples" / "bombyx-mori.png"
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-app-") as temp_dir:
+            source = Path(temp_dir) / "app.md"
+            source.write_text(
+                '---\ntitle: "T"\n---\n\n# ВИСНОВКИ {-}\n\nТекст.\n\n'
+                "# ДОДАТОК А {.appendix}\n\n## Перша назва\n\nТекст.\n\n"
+                f"![Схема]({image})\n\n"
+                "# ДОДАТОК Б. Друга назва {.appendix}\n\n## Підрозділ\n\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "app.docx"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main(
+                    [str(source), "-o", str(output_docx), "--no-update-toc", "-A"]
+                )
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                root = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            def style_of(paragraph: ET.Element) -> str | None:
+                style = paragraph.find(f"./{w_tag('pPr')}/{w_tag('pStyle')}")
+                return style.get(w_tag("val")) if style is not None else None
+
+            paragraphs = list(root.iter(w_tag("p")))
+            appendices = [
+                p
+                for p in paragraphs
+                if style_of(p) == "Heading1"
+                and "".join(t.text or "" for t in p.iter(w_tag("t"))).startswith(
+                    "ДОДАТОК"
+                )
+            ]
+            self.assertEqual(
+                ["".join(t.text or "" for t in p.iter(w_tag("t"))) for p in appendices],
+                ["ДОДАТОК АПерша назва", "ДОДАТОК БДруга назва"],
+            )
+            for appendix in appendices:
+                self.assertIsNotNone(appendix.find(f"./{w_tag('r')}/{w_tag('br')}"))
+                spacing = appendix.find(f"./{w_tag('pPr')}/{w_tag('spacing')}")
+                self.assertEqual(spacing.get(w_tag("after")), "360")
+
+            headings2 = [
+                "".join(t.text or "" for t in p.iter(w_tag("t")))
+                for p in paragraphs
+                if style_of(p) == "Heading2"
+            ]
+            self.assertEqual(headings2, ["Підрозділ"])
+            document_text = "".join(t.text or "" for t in root.iter(w_tag("t")))
+            self.assertIn("Рисунок А.1 –", document_text)
+
+    def test_text_language_is_none_to_skip_spellcheck(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-lang-") as temp_dir:
+            source = Path(temp_dir) / "lang.md"
+            source.write_text(
+                '---\ntitle: "T"\nlang: uk-UA\n---\n\n# РОЗДІЛ\n\n'
+                "Текст [English]{lang=en-US}.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "lang.docx"
+
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main(
+                    [str(source), "-o", str(output_docx), "--no-update-toc"]
+                )
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                styles = ET.fromstring(docx_zip.read("word/styles.xml"))
+                document = ET.fromstring(docx_zip.read("word/document.xml"))
+
+            defaults = styles.find(
+                f"./{w_tag('docDefaults')}/{w_tag('rPrDefault')}/{w_tag('rPr')}"
+            )
+            self.assertIsNotNone(defaults.find(w_tag("noProof")))
+            languages = list(styles.iter(w_tag("lang")))
+            self.assertEqual(len(languages), 1)
+            self.assertEqual(languages[0].get(w_tag("val")), "zxx")
+            self.assertEqual(list(document.iter(w_tag("lang"))), [])
+
     def test_cross_page_table_is_split_with_continuation_labels(self) -> None:
         with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-split-") as temp_dir:
             source = Path(temp_dir) / "split.md"
