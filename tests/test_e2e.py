@@ -13,6 +13,7 @@ from xml.etree import ElementTree as ET
 from md2dstu.cli import main
 from md2dstu.constants import PROJECT_ROOT
 from md2dstu.docx.namespaces import w_tag
+from md2dstu.libreoffice import LibreOfficeService
 
 
 class EndToEndIntegrationTestCase(unittest.TestCase):
@@ -502,6 +503,50 @@ class EndToEndIntegrationTestCase(unittest.TestCase):
                 document = docx_zip.read("word/document.xml").decode("utf-8")
 
             self.assertEqual(document.count('w:val="FigureSpacer"'), 1)
+
+    @unittest.skipUnless(
+        LibreOfficeService.is_libreoffice_available()
+        and LibreOfficeService.is_uno_available(),
+        "LibreOffice with Python UNO is required for layout fixes",
+    )
+    def test_alt_heading_style_drops_blank_line_pushed_to_page_top(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="md2dstu-e2e-top-") as temp_dir:
+            source = Path(temp_dir) / "top.md"
+            # Heading 1 plus 29 one-line paragraphs fill page 2 exactly, so the
+            # blank line before the next heading lands at the top of page 3.
+            lines = "".join(f"Рядок {index}.\n\n" for index in range(29))
+            source.write_text(
+                f'---\ntitle: "T"\n---\n\n# РОЗДІЛ\n\n{lines}'
+                "## Підрозділ\n\nТекст.\n",
+                encoding="utf-8",
+            )
+            output_docx = Path(temp_dir) / "top.docx"
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                exit_code = main([str(source), "-o", str(output_docx), "-A"])
+            self.assertEqual(exit_code, 0)
+
+            with zipfile.ZipFile(output_docx) as docx_zip:
+                body = ET.fromstring(docx_zip.read("word/document.xml")).find(
+                    w_tag("body")
+                )
+
+            paragraphs = list(body.iter(w_tag("p")))
+            heading_index = next(
+                index
+                for index, paragraph in enumerate(paragraphs)
+                if "Підрозділ" in "".join(t.text or "" for t in paragraph.iter(w_tag("t")))
+            )
+            before = paragraphs[heading_index - 1]
+            self.assertEqual(
+                "".join(t.text or "" for t in before.iter(w_tag("t"))), "Рядок 28."
+            )
+            self.assertTrue(
+                any(br.get(w_tag("type")) == "page" for br in before.iter(w_tag("br")))
+                or paragraphs[heading_index].find(
+                    f"./{w_tag('pPr')}/{w_tag('pageBreakBefore')}"
+                )
+                is not None
+            )
 
 
 if __name__ == "__main__":

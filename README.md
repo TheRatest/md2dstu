@@ -109,7 +109,9 @@ reported in the validation report without failing conversion.
 Heading 1 and Heading 3–9 keep their reference-document styling, while Heading
 2 remains regular weight as before. `--alt-heading-style` / `-A` removes
 before/after spacing from Heading 1–9 and puts one blank line before headings
-preceded by same-page content (page breaks are respected). Both options also
+preceded by same-page content (page breaks are respected). When LibreOffice is
+available, a blank line that the layout pushes to the top of a new page is
+removed and the heading starts that page instead. Both options also
 apply when an external `--reference-doc` is supplied.
 
 ## Source structure
@@ -371,8 +373,9 @@ use `--reference-doc` or adjust the final DOCX.
 
 With `toc: true` or `--toc`, Pandoc inserts a Word TOC field. When LibreOffice
 and its Python/UNO bindings are installed, `md2dstu` opens the temporary DOCX
-headlessly and populates the contents with current headings and page numbers.
-Use `--no-update-toc` to skip that step. Page numbers can change after editing,
+headlessly, applies page-dependent layout fixes, and populates the contents
+with current headings and page numbers. Use `--no-update-toc` to skip that
+step. Page numbers can change after editing,
 so refresh the contents again before final export:
 
 - **Microsoft Word:** select the contents, choose **Update Table → Update

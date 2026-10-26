@@ -108,13 +108,16 @@ class ReportConverter:
             )
             postprocessor.process(draft_docx)
 
-            # Update TOC if requested and LibreOffice is available
-            if self.config.include_toc and self.config.update_toc:
-                if LibreOfficeService.is_libreoffice_available():
-                    LibreOfficeService.update_table_of_contents(draft_docx, work_dir)
+            # Page-dependent fixes and TOC need a real layout from LibreOffice
+            if self.config.update_toc:
+                # Without a TOC the layout pass is optional, so a missing pyuno is no error
+                if LibreOfficeService.is_libreoffice_available() and (
+                    self.config.include_toc or LibreOfficeService.is_uno_available()
+                ):
+                    LibreOfficeService.finalize_layout(draft_docx, work_dir)
                     # LibreOffice updates can rewrite properties; re-assert exact DSTU styling
                     postprocessor.process(draft_docx)
-                else:
+                elif self.config.include_toc:
                     validation_report.add_warning(
                         "LibreOffice is unavailable, so the contents field was inserted but "
                         "not populated; update it in Word/LibreOffice"

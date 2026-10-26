@@ -73,7 +73,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-update-toc",
         action="store_true",
-        help="Do not invoke LibreOffice to populate the Table of Contents field",
+        help="Do not invoke LibreOffice to populate the Table of Contents field "
+        "or apply page-dependent layout fixes",
     )
     parser.add_argument(
         "--check",
